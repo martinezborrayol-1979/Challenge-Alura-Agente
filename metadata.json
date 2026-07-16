@@ -1,0 +1,6 @@
+{
+  "name": "DocuMind AI",
+  "description": "Enterprise Document Management with Automated AI Insights, Metadata Extraction, and Smart Q&A powered by Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

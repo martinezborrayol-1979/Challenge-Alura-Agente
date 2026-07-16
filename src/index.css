@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  /* Custom DocuMind Bento Grid Design System Colors */
+  --color-brand-surface: #020617; /* Slate 950 */
+  --color-brand-surface-dim: #0f172a; /* Slate 900 */
+  --color-brand-surface-bright: #1e293b; /* Slate 800 */
+  --color-brand-surface-lowest: #020617;
+  --color-brand-surface-low: #0f172a;
+  --color-brand-surface-container: #1e293b;
+  --color-brand-surface-high: #334155;
+  --color-brand-surface-highest: #475569;
+  
+  --color-brand-primary: #f8fafc; /* Slate 50 */
+  --color-brand-on-primary: #020617;
+  
+  --color-brand-secondary: #6366f1; /* Indigo 500 (Bento theme) */
+  --color-brand-on-secondary: #ffffff;
+  --color-brand-secondary-container: #4f46e5; /* Indigo 600 */
+  --color-brand-on-secondary-container: #ffffff;
+  
+  --color-brand-cyan: #06b6d4; /* Cloud status / highlight */
+  --color-brand-outline: #64748b; /* Slate 500 */
+  --color-brand-outline-variant: #1e293b; /* Slate 800 */
+}
+
+/* Base resets & custom scrollbar to match enterprise style */
+body {
+  background-color: var(--color-brand-surface);
+  color: var(--color-brand-primary);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-brand-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-brand-surface-high);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-outline);
+}
