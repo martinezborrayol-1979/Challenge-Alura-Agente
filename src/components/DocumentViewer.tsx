@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { DocumentItem } from "../types";
-import { FileText, Edit2, Check, X, RefreshCw, Calendar, Tag, Maximize2, Minimize2, BookOpen, Trash2 } from "lucide-react";
+import { FileText, Edit2, Check, X, RefreshCw, Calendar, Tag, Maximize2, Minimize2, BookOpen, Trash2, Clock, History, RotateCcw, GitCommit, ArrowLeft, Download } from "lucide-react";
 
 // Helper functions to approximate syllables and calculate Flesch-Kincaid readability
 function countWordSyllables(word: string): number {
@@ -91,12 +91,13 @@ function calculateFleschKincaid(text: string) {
 
 interface DocumentViewerProps {
   document: DocumentItem;
-  onUpdateContent: (id: string, newContent: string) => void;
+  onUpdateContent: (id: string, newContent: string, changeSummary?: string) => void;
   onTriggerReanalyze: (id: string) => Promise<void>;
   isAnalyzing: boolean;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
   onDeleteDocument: (id: string) => void;
+  onRevertToVersion: (docId: string, versionId: string) => void;
 }
 
 export default function DocumentViewer({
@@ -107,25 +108,84 @@ export default function DocumentViewer({
   isFocusMode,
   onToggleFocusMode,
   onDeleteDocument,
+  onRevertToVersion,
 }: DocumentViewerProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(document.content);
+  const [showHistory, setShowHistory] = useState(false);
+  const [changeSummary, setChangeSummary] = useState("");
+  const [selectedPreviewVersionId, setSelectedPreviewVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     setEditedContent(document.content);
     setIsEditing(false);
+    setSelectedPreviewVersionId(null);
   }, [document]);
 
-  const readability = calculateFleschKincaid(isEditing ? editedContent : document.content);
+  const isPreviewing = selectedPreviewVersionId !== null;
+  const previewVersion = document.versions?.find((v) => v.id === selectedPreviewVersionId);
+  const contentToDisplay = isPreviewing && previewVersion ? previewVersion.content : (isEditing ? editedContent : document.content);
+
+  const readability = calculateFleschKincaid(isEditing ? editedContent : contentToDisplay);
+  const readingTimeMinutes = Math.max(1, Math.ceil(readability.totalWords / 200));
 
   const handleSave = () => {
-    onUpdateContent(document.id, editedContent);
+    onUpdateContent(document.id, editedContent, changeSummary.trim() || undefined);
     setIsEditing(false);
+    setChangeSummary("");
   };
 
   const handleCancel = () => {
     setEditedContent(document.content);
     setIsEditing(false);
+    setChangeSummary("");
+  };
+
+  const handleDownloadMarkdown = () => {
+    // Generar resumen del historial de versiones en formato Markdown
+    let versionHistoryMarkdown = "";
+    if (document.versions && document.versions.length > 0) {
+      versionHistoryMarkdown = "## Historial de Versiones\n\n";
+      versionHistoryMarkdown += "| Versión | Fecha/Hora | Resumen de Cambios | Título del Documento |\n";
+      versionHistoryMarkdown += "| ------- | ---------- | ------------------ | -------------------- |\n";
+      // Las versiones se muestran de más reciente a más antigua
+      document.versions.forEach((v, idx) => {
+        const verNum = `v${document.versions!.length - idx}`;
+        versionHistoryMarkdown += `| ${verNum} | ${v.timestamp || "N/A"} | ${v.changeSummary || "Sin resumen de cambios"} | ${v.title || document.title || "Sin título"} |\n`;
+      });
+      versionHistoryMarkdown += "\n";
+    } else {
+      versionHistoryMarkdown = "## Historial de Versiones\n\nNo hay versiones registradas para este documento en la bóveda local.\n\n";
+    }
+
+    // Contenido completo formateado en Markdown
+    const markdownContent = `# ${document.title || "Documento Sin Título"}
+
+**Categoría:** ${document.category || "General"}
+**Fecha de Creación:** ${document.createdAt || "N/A"}
+
+---
+
+## Contenido del Documento
+
+${document.content || ""}
+
+---
+
+${versionHistoryMarkdown}
+`;
+
+    // Descargar como archivo .md
+    const blob = new Blob([markdownContent], { type: "text/markdown;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = window.document.createElement("a");
+    link.href = url;
+    // Sanitizar el nombre del archivo
+    const safeTitle = (document.title || "documento").replace(/[^a-zA-Z0-9íóáúéñÍÓÁÚÉÑ]/g, "_").toLowerCase();
+    link.setAttribute("download", `${safeTitle}.md`);
+    window.document.body.appendChild(link);
+    link.click();
+    window.document.body.removeChild(link);
   };
 
   const getCategoryColor = (cat: string) => {
@@ -166,6 +226,11 @@ export default function DocumentViewer({
               </span>
               <span className={`px-2 py-0.5 border rounded-full text-[10px] font-semibold shrink-0 ${getCategoryColor(document.category)}`}>
                 {document.category}
+              </span>
+
+              <span className="flex items-center gap-1.5 px-2 py-0.5 border border-slate-850 bg-slate-950/60 text-slate-300 rounded-full text-[10px] font-semibold shrink-0" id="reading-time-chip">
+                <Clock className="w-3 h-3 text-indigo-400" />
+                <span>{readingTimeMinutes} {readingTimeMinutes === 1 ? "min" : "minutos"} de lectura</span>
               </span>
               
               {/* Readability Score Metric Chip with Hover Tooltip */}
@@ -256,6 +321,28 @@ export default function DocumentViewer({
           ) : (
             <>
               <button
+                onClick={() => {
+                  setShowHistory(!showHistory);
+                  setSelectedPreviewVersionId(null);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
+                  showHistory
+                    ? "bg-indigo-600/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-600/35"
+                    : "bg-slate-950 border-slate-800/80 text-slate-300 hover:bg-slate-900"
+                }`}
+                title="Ver historial de versiones y revertir cambios"
+                id="btn-doc-history"
+              >
+                <History className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">Versiones</span>
+                {document.versions && document.versions.length > 0 && (
+                  <span className="px-1.5 py-0.5 bg-indigo-600 text-white rounded-full text-[9px] font-bold leading-none">
+                    {document.versions.length}
+                  </span>
+                )}
+              </button>
+
+              <button
                 onClick={() => onDeleteDocument(document.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-400 bg-slate-950 border border-slate-800/80 hover:bg-rose-950/20 hover:border-rose-500/35 rounded-xl transition-colors cursor-pointer"
                 title="Eliminar este documento de la bóveda local"
@@ -266,7 +353,21 @@ export default function DocumentViewer({
               </button>
 
               <button
-                onClick={() => setIsEditing(true)}
+                onClick={handleDownloadMarkdown}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-400 bg-slate-950 border border-slate-800/80 hover:bg-emerald-950/20 hover:border-emerald-500/35 rounded-xl transition-colors cursor-pointer"
+                title="Descargar documento formateado en Markdown"
+                id="btn-download-doc"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Descargar</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsEditing(true);
+                  setShowHistory(false);
+                  setSelectedPreviewVersionId(null);
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 bg-slate-950 border border-slate-800 hover:bg-slate-900 rounded-xl transition-colors shadow-sm cursor-pointer"
                 title="Editar texto del documento"
                 id="btn-edit-doc"
@@ -290,33 +391,176 @@ export default function DocumentViewer({
         </div>
       </div>
 
-      {/* Workspace Paper Area */}
-      <div className="flex-1 overflow-y-auto p-6 bg-slate-950/40 relative">
-        <div className="max-w-2xl mx-auto bg-slate-950 min-h-[500px] shadow-lg border border-slate-800/80 rounded-2xl p-6 md:p-8 relative overflow-hidden transition-all duration-300">
-          
-          {/* Paper decorative corner watermark */}
-          <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-indigo-500/5 to-transparent pointer-events-none" />
-          
-          {isEditing ? (
-            <textarea
-              value={editedContent}
-              onChange={(e) => setEditedContent(e.target.value)}
-              className="w-full h-[450px] text-sm text-slate-200 font-mono p-4 border border-indigo-500/30 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl outline-none resize-none leading-relaxed bg-slate-900/60"
-              placeholder="Escribe o pega el contenido del documento aquí..."
-              id="doc-edit-textarea"
-            />
-          ) : (
-            <div className="prose prose-invert max-w-none text-slate-300 font-sans leading-relaxed whitespace-pre-wrap text-sm">
-              {document.content ? (
-                document.content
+      {/* Main split container */}
+      <div className="flex-1 flex flex-row overflow-hidden">
+        {/* Workspace Paper Area */}
+        <div className="flex-1 overflow-y-auto p-6 bg-slate-950/40 relative flex flex-col">
+          {/* Warning banner for preview mode */}
+          {isPreviewing && (
+            <div className="mb-4 mx-auto w-full max-w-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 px-4 py-3 rounded-2xl text-xs flex flex-col sm:flex-row items-center justify-between gap-3 font-sans shadow-lg shadow-amber-950/20 animate-in fade-in slide-in-from-top-1" id="preview-mode-banner">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
+                <span>
+                  Estás previsualizando la versión: <strong className="text-amber-200">"{previewVersion?.changeSummary}"</strong> ({previewVersion?.timestamp})
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    if (previewVersion) {
+                      onRevertToVersion(document.id, previewVersion.id);
+                      setSelectedPreviewVersionId(null);
+                    }
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-semibold transition-all cursor-pointer shadow-sm text-[10px]"
+                  id="btn-restore-version-banner"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Restaurar esta versión
+                </button>
+                <button
+                  onClick={() => setSelectedPreviewVersionId(null)}
+                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-lg font-semibold transition-all cursor-pointer border border-slate-800 text-[10px]"
+                  id="btn-cancel-preview-banner"
+                >
+                  Salir
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="max-w-2xl mx-auto w-full bg-slate-950 min-h-[500px] shadow-lg border border-slate-800/80 rounded-2xl p-6 md:p-8 relative overflow-hidden transition-all duration-300">
+            {/* Paper decorative corner watermark */}
+            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-indigo-500/5 to-transparent pointer-events-none" />
+            
+            {isEditing ? (
+              <div className="flex flex-col gap-4 h-full" id="editing-container">
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  className="w-full h-[400px] text-sm text-slate-200 font-mono p-4 border border-indigo-500/30 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl outline-none resize-none leading-relaxed bg-slate-900/60"
+                  placeholder="Escribe o pega el contenido del documento aquí..."
+                  id="doc-edit-textarea"
+                />
+                <div className="flex flex-col gap-1.5 bg-slate-950/60 p-3 rounded-xl border border-slate-850">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">
+                    Resumen de cambios (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={changeSummary}
+                    onChange={(e) => setChangeSummary(e.target.value)}
+                    placeholder="Ej: Corregido error en párrafo 3, actualizado cifras de reporte..."
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4.5 py-2.5 text-xs text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500 transition-all font-sans"
+                    id="doc-edit-change-summary"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="prose prose-invert max-w-none text-slate-300 font-sans leading-relaxed whitespace-pre-wrap text-sm">
+                {contentToDisplay ? (
+                  contentToDisplay
+                ) : (
+                  <div className="text-center py-20 text-slate-500 font-mono">
+                    [Este documento está vacío. Añade contenido en modo Edición]
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Sidebar for Version History */}
+        {showHistory && (
+          <div className="w-80 border-l border-slate-800 bg-slate-900/40 flex flex-col h-full shrink-0" id="version-history-sidebar">
+            <div className="p-4 border-b border-slate-800/80 bg-slate-950/20 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-indigo-400" />
+                <h3 className="text-xs font-bold text-slate-200 font-sans">
+                  Historial de Cambios
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowHistory(false);
+                  setSelectedPreviewVersionId(null);
+                }}
+                className="text-slate-500 hover:text-slate-300 p-1 hover:bg-slate-800 rounded-lg cursor-pointer transition-all"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {document.versions && document.versions.length > 0 ? (
+                <div className="relative border-l-2 border-slate-800 pl-4 ml-2 space-y-4">
+                  {document.versions.map((version) => {
+                    const isSelected = selectedPreviewVersionId === version.id;
+                    return (
+                      <div key={version.id} className="relative group/item">
+                        {/* Circle bullet node */}
+                        <div className={`absolute -left-[25px] top-1.5 w-3.5 h-3.5 rounded-full border-2 transition-all ${
+                          isSelected 
+                            ? "bg-indigo-500 border-indigo-400 scale-110 shadow-sm shadow-indigo-500/25" 
+                            : "bg-slate-950 border-slate-700 group-hover/item:border-indigo-500/40"
+                        }`} />
+                        
+                        <div 
+                          onClick={() => setSelectedPreviewVersionId(isSelected ? null : version.id)}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer text-left ${
+                            isSelected 
+                              ? "bg-indigo-950/40 border-indigo-500/40 shadow-sm" 
+                              : "bg-slate-950/40 border-slate-850 hover:bg-slate-950 hover:border-slate-800"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-slate-500 font-mono font-medium">
+                              {version.timestamp}
+                            </span>
+                            <span className="text-[9px] px-1.5 py-0.2 bg-slate-950 border border-slate-850 text-slate-400 rounded-md font-mono">
+                              {version.id}
+                            </span>
+                          </div>
+                          
+                          <h4 className="text-xs font-bold text-slate-200 font-sans group-hover/item:text-indigo-400 transition-colors">
+                            {version.changeSummary || "Edición manual"}
+                          </h4>
+
+                          <p className="text-[10px] text-slate-400 font-mono truncate mt-1">
+                            {version.content.substring(0, 45)}...
+                          </p>
+
+                          {/* Quick Restore link button inside item */}
+                          <div className="mt-2.5 flex items-center justify-end gap-2 border-t border-slate-850/50 pt-2 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                  e.stopPropagation();
+                                  onRevertToVersion(document.id, version.id);
+                                  setSelectedPreviewVersionId(null);
+                              }}
+                              className="text-[9px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 uppercase tracking-wider font-mono bg-indigo-950/30 px-2 py-1 rounded border border-indigo-900/30 hover:border-indigo-500/40 cursor-pointer"
+                            >
+                              <RotateCcw className="w-2.5 h-2.5" />
+                              Revertir
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : (
-                <div className="text-center py-20 text-slate-500 font-mono">
-                  [Este documento está vacío. Añade contenido en modo Edición]
+                <div className="text-center py-12 text-slate-500 font-mono text-[10px] uppercase tracking-wider flex flex-col items-center justify-center gap-2 select-none">
+                  <GitCommit className="w-8 h-8 text-slate-700 mb-1" />
+                  <span>Sin versiones previas</span>
+                  <span className="text-[9px] text-slate-600 font-sans lowercase max-w-[180px] mt-1 italic text-center">
+                    Modifica el contenido del documento para crear una versión automática
+                  </span>
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

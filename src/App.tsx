@@ -59,6 +59,27 @@ export default function App() {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [docIdToDelete, setDocIdToDelete] = useState<string | null>(null);
 
+  const [aiProvider, setAiProvider] = useState<"gemini" | "cohere">("gemini");
+  const [apiKeysStatus, setApiKeysStatus] = useState({ hasGemini: true, hasCohere: false });
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const res = await fetch("/api/config");
+        if (res.ok) {
+          const data = await res.json();
+          setApiKeysStatus(data);
+          if (!data.hasGemini && data.hasCohere) {
+            setAiProvider("cohere");
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching API config status:", err);
+      }
+    };
+    fetchConfig();
+  }, []);
+
   // Sync state changes with local storage
   useEffect(() => {
     localStorage.setItem("documind_docs", JSON.stringify(documents));
@@ -104,11 +125,69 @@ export default function App() {
   };
 
   // Handle content update (Inline Editing)
-  const handleUpdateContent = (id: string, newContent: string) => {
+  const handleUpdateContent = (id: string, newContent: string, changeSummary?: string) => {
     setDocuments((prevDocs) =>
-      prevDocs.map((doc) =>
-        doc.id === id ? { ...doc, content: newContent } : doc
-      )
+      prevDocs.map((doc) => {
+        if (doc.id !== id) return doc;
+        if (doc.content === newContent) return doc;
+
+        const timestampStr = new Date().toLocaleString("es-ES", {
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+
+        const newVersion = {
+          id: `v-${Date.now()}`,
+          content: doc.content,
+          timestamp: timestampStr,
+          title: doc.title,
+          changeSummary: changeSummary || "Edición manual",
+        };
+
+        const existingVersions = doc.versions || [];
+
+        return {
+          ...doc,
+          content: newContent,
+          versions: [newVersion, ...existingVersions],
+        };
+      })
+    );
+  };
+
+  // Revert document to a specific version
+  const handleRevertToVersion = (docId: string, versionId: string) => {
+    setDocuments((prevDocs) =>
+      prevDocs.map((doc) => {
+        if (doc.id !== docId) return doc;
+        const targetVersion = doc.versions?.find((v) => v.id === versionId);
+        if (!targetVersion) return doc;
+
+        const timestampStr = new Date().toLocaleString("es-ES", {
+          day: "numeric",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+
+        const currentVersion = {
+          id: `v-${Date.now()}`,
+          content: doc.content,
+          timestamp: timestampStr,
+          title: doc.title,
+          changeSummary: `Antes de revertir a ${targetVersion.changeSummary}`,
+        };
+
+        const updatedVersions = doc.versions?.filter((v) => v.id !== versionId) || [];
+
+        return {
+          ...doc,
+          content: targetVersion.content,
+          versions: [currentVersion, ...updatedVersions],
+        };
+      })
     );
   };
 
@@ -127,6 +206,7 @@ export default function App() {
         body: JSON.stringify({
           text: targetDoc.content,
           filename: targetDoc.title,
+          provider: aiProvider,
         }),
       });
 
@@ -156,7 +236,7 @@ export default function App() {
   };
 
   // Handle executive summary generation via Gemini API
-  const handleGenerateExecutiveSummary = async (docId: string) => {
+  const handleGenerateExecutiveSummary = async (docId: string, lowLatency: boolean = true) => {
     const targetDoc = documents.find((doc) => doc.id === docId);
     if (!targetDoc) return;
 
@@ -170,6 +250,8 @@ export default function App() {
         body: JSON.stringify({
           text: targetDoc.content,
           title: targetDoc.title,
+          lowLatency,
+          provider: aiProvider,
         }),
       });
 
@@ -198,7 +280,7 @@ export default function App() {
   };
 
   // Handle custom interactive Q&A (Contextual Chat)
-  const handleSendMessage = async (docId: string, messageText: string) => {
+  const handleSendMessage = async (docId: string, messageText: string, lowLatency: boolean = true) => {
     const targetDoc = documents.find((doc) => doc.id === docId);
     if (!targetDoc) return;
 
@@ -229,6 +311,8 @@ export default function App() {
           text: targetDoc.content,
           query: messageText,
           history: docChats, // send existing conversation context
+          lowLatency,
+          provider: aiProvider,
         }),
       });
 
@@ -254,7 +338,7 @@ export default function App() {
       const errorMessage: ChatMessage = {
         id: "msg-err-" + Date.now(),
         role: "assistant",
-        content: `Error al contactar a Gemini: ${err.message || "Revisa la conexión de red."}`,
+        content: `Error al contactar a ${aiProvider === "cohere" ? "Cohere" : "Gemini"}: ${err.message || "Revisa la conexión de red."}`,
         timestamp: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
       };
       setChatsByDoc((prev) => ({
@@ -468,11 +552,14 @@ export default function App() {
                     } ${getCategoryColorBorder(doc.category)}`}
                   >
                     <div className="flex-1 min-w-0 pr-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         {getCategoryIcon(doc.category)}
-                        <h3 className="text-xs font-bold text-slate-200 truncate font-sans">
+                        <h3 className="text-xs font-bold text-slate-200 truncate font-sans flex-1 min-w-0">
                           {doc.title}
                         </h3>
+                        <span className="shrink-0 text-[9px] font-mono font-bold px-1.5 py-0.5 bg-slate-950 border border-slate-800 text-indigo-400 rounded-md" title={`Versión actual: v${(doc.versions?.length || 0) + 1}.0`}>
+                          v{(doc.versions?.length || 0) + 1}.0
+                        </span>
                       </div>
                       
                       <div className="flex items-center gap-2 mt-1.5">
@@ -572,10 +659,53 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4 text-xs font-semibold">
-            {/* Environment Credentials status */}
-            <div className="hidden sm:flex items-center gap-1.5 text-emerald-400 bg-emerald-950/40 border border-emerald-900/40 rounded-full px-3 py-1 font-mono text-[10px]">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Gemini v3.5 Flash Activo</span>
+            {/* Warning when active engine key is missing */}
+            {aiProvider === "cohere" && !apiKeysStatus.hasCohere && (
+              <div className="hidden lg:flex items-center gap-1 px-3 py-1.5 bg-amber-950/40 border border-amber-900/45 text-[10px] text-amber-400 rounded-full font-mono font-semibold animate-pulse" id="warning-missing-cohere-key">
+                ⚠️ Agrega COHERE_API_KEY en .env
+              </div>
+            )}
+            {aiProvider === "gemini" && !apiKeysStatus.hasGemini && (
+              <div className="hidden lg:flex items-center gap-1 px-3 py-1.5 bg-amber-950/40 border border-amber-900/45 text-[10px] text-amber-400 rounded-full font-mono font-semibold animate-pulse" id="warning-missing-gemini-key">
+                ⚠️ Configura la clave GEMINI_API_KEY
+              </div>
+            )}
+
+            {/* AI Engine Global Selector */}
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-2xl p-0.5 shrink-0" id="global-ai-selector">
+              <button
+                onClick={() => setAiProvider("gemini")}
+                className={`px-3 py-1.5 rounded-xl font-sans text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  aiProvider === "gemini"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                title={apiKeysStatus.hasGemini ? "Google Gemini" : "Falta GEMINI_API_KEY"}
+                id="btn-select-gemini"
+              >
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                <span>Gemini</span>
+                {!apiKeysStatus.hasGemini && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse ml-0.5" />
+                )}
+              </button>
+              
+              <button
+                onClick={() => setAiProvider("cohere")}
+                className={`px-3 py-1.5 rounded-xl font-sans text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  aiProvider === "cohere"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                title={apiKeysStatus.hasCohere ? "Cohere Command" : "Falta COHERE_API_KEY"}
+                id="btn-select-cohere"
+              >
+                <Cpu className="w-3.5 h-3.5 shrink-0" />
+                <span>Cohere</span>
+                {!apiKeysStatus.hasCohere && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse ml-0.5" />
+                )}
+              </button>
             </div>
             
             {/* User credentials identifier */}
@@ -610,6 +740,7 @@ export default function App() {
                     isFocusMode={isFocusMode}
                     onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
                     onDeleteDocument={handleDeleteDocument}
+                    onRevertToVersion={handleRevertToVersion}
                   />
                 </div>
 
@@ -624,6 +755,7 @@ export default function App() {
                       isAnalyzing={isAnalyzing}
                       onGenerateExecutiveSummary={handleGenerateExecutiveSummary}
                       isGeneratingSummary={isGeneratingSummary}
+                      provider={aiProvider}
                     />
                   </div>
                 )}
@@ -658,6 +790,7 @@ export default function App() {
                 <div className="max-w-4xl mx-auto">
                   <ComparePanel
                     documents={documents}
+                    provider={aiProvider}
                     onCancel={() => setActiveView("viewer")}
                   />
                 </div>

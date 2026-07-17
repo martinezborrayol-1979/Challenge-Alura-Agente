@@ -12,6 +12,14 @@ export interface AnalysisData {
   riskLevel: string;
 }
 
+export interface DocumentVersion {
+  id: string;
+  content: string;
+  timestamp: string;
+  title: string;
+  changeSummary: string;
+}
+
 export interface DocumentItem {
   id: string;
   title: string;
@@ -21,6 +29,7 @@ export interface DocumentItem {
   createdAt: string;
   analysis?: AnalysisData;
   executiveSummary?: string;
+  versions?: DocumentVersion[];
 }
 
 export interface ChatMessage {

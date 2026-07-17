@@ -60,12 +60,89 @@ async function startServer() {
     return error.message || "Error al comunicarse con el servicio de Inteligencia Artificial.";
   }
 
+  // Helper function to call Cohere Chat V2 API
+  async function callCohereChat(messages: { role: string; content: string }[], systemInstruction?: string): Promise<string> {
+    const cohereKey = process.env.COHERE_API_KEY;
+    if (!cohereKey) {
+      throw new Error("La clave de API de Cohere (COHERE_API_KEY) no está configurada en el servidor.");
+    }
+
+    const formattedMessages = [...messages];
+    if (systemInstruction) {
+      formattedMessages.unshift({
+        role: "system",
+        content: systemInstruction,
+      });
+    }
+
+    const response = await fetch("https://api.cohere.com/v2/chat", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${cohereKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "command-r-plus-08-2024",
+        messages: formattedMessages,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Error de la API de Cohere: Código de estado ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data?.message?.content?.[0]?.text || data?.text || "";
+    if (!text) {
+      throw new Error("No se pudo obtener una respuesta válida del modelo de Cohere.");
+    }
+
+    return text;
+  }
+
+  // Configuration endpoint to let frontend know which API keys are present
+  app.get("/api/config", (req, res) => {
+    res.json({
+      hasGemini: !!process.env.GEMINI_API_KEY,
+      hasCohere: !!process.env.COHERE_API_KEY,
+    });
+  });
+
   // 1. Analyze Document (Structured Metadata, Category & Summary)
   app.post("/api/documents/analyze", async (req, res) => {
     try {
-      const { text, filename } = req.body;
+      const { text, filename, provider } = req.body;
       if (!text) {
         return res.status(400).json({ error: "Falta el texto del documento para analizar" });
+      }
+
+      if (provider === "cohere") {
+        if (!process.env.COHERE_API_KEY) {
+          return res.status(400).json({ error: "La clave COHERE_API_KEY no está configurada en el servidor." });
+        }
+
+        const prompt = `Analiza este documento titulado/nombrado como "${filename || 'Documento sin título'}":\n\n${text}
+
+Devuelve un JSON estrictamente con la siguiente estructura exacta en español, sin rodeos, sin comentarios de código markdown ni bloques (solo texto plano JSON):
+{
+  "category": "Categoría calculada del documento: 'Financiero', 'Legal', 'Técnico', 'Recursos Humanos', o 'General'.",
+  "summary": "Un resumen ejecutivo de alta calidad, claro y detallado de 2 a 4 oraciones.",
+  "language": "Idioma principal detectado en el documento.",
+  "metadata": [
+    { "key": "Atributo clave del metadato (ej. 'Monto Total', 'Fecha de Vigencia', 'Autor')", "value": "Valor extraído con exactitud del documento." }
+  ],
+  "suggestedActions": ["Lista de acciones de negocio sugeridas que se desprenden del documento"],
+  "riskLevel": "Nivel de riesgo detectado (Bajo, Medio, Alto) junto con una justificación de 1 oración."
+}`;
+
+        const responseText = await callCohereChat([{ role: "user", content: prompt }], "Eres un extractor de metadatos JSON documental ultra preciso que responde únicamente con JSON.");
+        let cleanJson = responseText.trim();
+        if (cleanJson.startsWith("```")) {
+          cleanJson = cleanJson.replace(/^```json?\s*/i, "").replace(/\s*```$/, "");
+        }
+        const data = JSON.parse(cleanJson);
+        return res.json(data);
       }
 
       if (!apiKey) {
@@ -138,13 +215,9 @@ async function startServer() {
   // 2. Chat with Document (Q&A Contextual)
   app.post("/api/documents/chat", async (req, res) => {
     try {
-      const { text, query, history } = req.body;
+      const { text, query, history, lowLatency, provider } = req.body;
       if (!text || !query) {
         return res.status(400).json({ error: "Faltan datos requeridos (texto del documento o consulta)" });
-      }
-
-      if (!apiKey) {
-        return res.status(500).json({ error: "La clave GEMINI_API_KEY no está configurada en el servidor." });
       }
 
       const chatHistory = history || [];
@@ -170,8 +243,30 @@ Pregunta del usuario: ${query}
 
 Respuesta:`;
 
+      if (provider === "cohere") {
+        if (!process.env.COHERE_API_KEY) {
+          return res.status(400).json({ error: "La clave COHERE_API_KEY no está configurada en el servidor." });
+        }
+        const cohereMessages = chatHistory.map((h: any) => ({
+          role: h.role === 'user' ? 'user' : 'assistant',
+          content: h.content,
+        }));
+        cohereMessages.push({ role: "user", content: prompt });
+
+        const responseText = await callCohereChat(cohereMessages, "Eres DocuMind AI, un asistente experto en preguntas y respuestas sobre documentos.");
+        return res.json({ text: responseText });
+      }
+
+      if (!apiKey) {
+        return res.status(500).json({ error: "La clave GEMINI_API_KEY no está configurada en el servidor." });
+      }
+
+      // Default to low latency (gemini-3.1-flash-lite) unless explicitly set to false
+      const isLowLatency = lowLatency !== false;
+      const selectedModel = isLowLatency ? "gemini-3.1-flash-lite" : "gemini-3.5-flash";
+
       const response = await callGeminiWithRetry(() => ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: selectedModel,
         contents: prompt,
       }));
 
@@ -185,13 +280,9 @@ Respuesta:`;
   // 2b. Generate Executive Summary
   app.post("/api/documents/executive-summary", async (req, res) => {
     try {
-      const { text, title } = req.body;
+      const { text, title, lowLatency, provider } = req.body;
       if (!text) {
         return res.status(400).json({ error: "Falta el contenido del documento para realizar el resumen ejecutivo." });
-      }
-
-      if (!apiKey) {
-        return res.status(500).json({ error: "La clave GEMINI_API_KEY no está configurada en el servidor." });
       }
 
       const prompt = `Actúa como un estratega y analista de negocios de alto nivel. Analiza el siguiente documento titulado "${title || 'Sin título'}" y genera un resumen ejecutivo (Executive Summary) altamente estructurado, impactante y conciso en formato Markdown.
@@ -208,8 +299,24 @@ Contenido del documento a resumir:
 ${text}
 """`;
 
+      if (provider === "cohere") {
+        if (!process.env.COHERE_API_KEY) {
+          return res.status(400).json({ error: "La clave COHERE_API_KEY no está configurada en el servidor." });
+        }
+        const responseText = await callCohereChat([{ role: "user", content: prompt }], "Eres un analista de negocios experto que genera resúmenes ejecutivos en Markdown estructurado.");
+        return res.json({ text: responseText });
+      }
+
+      if (!apiKey) {
+        return res.status(500).json({ error: "La clave GEMINI_API_KEY no está configurada en el servidor." });
+      }
+
+      // Default to low latency (gemini-3.1-flash-lite) unless explicitly set to false
+      const isLowLatency = lowLatency !== false;
+      const selectedModel = isLowLatency ? "gemini-3.1-flash-lite" : "gemini-3.5-flash";
+
       const response = await callGeminiWithRetry(() => ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: selectedModel,
         contents: prompt,
       }));
 
@@ -223,13 +330,9 @@ ${text}
   // 3. Compare multiple documents
   app.post("/api/documents/compare", async (req, res) => {
     try {
-      const { documents } = req.body; // array of { title, text }
+      const { documents, provider } = req.body; // array of { title, text }
       if (!documents || !Array.isArray(documents) || documents.length < 2) {
         return res.status(400).json({ error: "Por favor proporciona al menos dos documentos para comparar." });
-      }
-
-      if (!apiKey) {
-        return res.status(500).json({ error: "La clave GEMINI_API_KEY no está configurada en el servidor." });
       }
 
       let prompt = `Eres DocuMind AI, un consultor de inteligencia de negocio. Compara detalladamente los siguientes documentos y proporciona un informe comparativo riguroso, estructurado y formateado en Markdown.
@@ -256,6 +359,18 @@ ${doc.text}
       });
 
       prompt += `\nGenera el informe comparativo en Markdown ahora:`;
+
+      if (provider === "cohere") {
+        if (!process.env.COHERE_API_KEY) {
+          return res.status(400).json({ error: "La clave COHERE_API_KEY no está configurada en el servidor." });
+        }
+        const responseText = await callCohereChat([{ role: "user", content: prompt }], "Eres un consultor estratégico experto.");
+        return res.json({ text: responseText });
+      }
+
+      if (!apiKey) {
+        return res.status(500).json({ error: "La clave GEMINI_API_KEY no está configurada en el servidor." });
+      }
 
       const response = await callGeminiWithRetry(() => ai.models.generateContent({
         model: "gemini-3.5-flash",

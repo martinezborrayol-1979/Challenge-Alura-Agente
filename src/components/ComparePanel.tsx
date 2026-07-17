@@ -5,10 +5,11 @@ import ReactMarkdown from "react-markdown";
 
 interface ComparePanelProps {
   documents: DocumentItem[];
+  provider?: "gemini" | "cohere";
   onCancel: () => void;
 }
 
-export default function ComparePanel({ documents, onCancel }: ComparePanelProps) {
+export default function ComparePanel({ documents, provider = "gemini", onCancel }: ComparePanelProps) {
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [isComparing, setIsComparing] = useState(false);
   const [comparisonResult, setComparisonResult] = useState<string | null>(null);
@@ -47,7 +48,7 @@ export default function ComparePanel({ documents, onCancel }: ComparePanelProps)
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ documents: docsToCompare }),
+        body: JSON.stringify({ documents: docsToCompare, provider }),
       });
 
       if (!response.ok) {
@@ -77,7 +78,7 @@ export default function ComparePanel({ documents, onCancel }: ComparePanelProps)
             Comparación Cruzada con AI (Cross-Analysis)
           </h2>
           <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            Selecciona dos o más documentos de tu repositorio. Gemini realizará un análisis comparativo identificando divergencias, cláusulas en conflicto, discrepancias de montos y recomendaciones operativas.
+            Selecciona dos o más documentos de tu repositorio. {provider === "cohere" ? "Cohere Command" : "Gemini"} realizará un análisis comparativo identificando divergencias, cláusulas en conflicto, discrepancias de montos y recomendaciones operativas.
           </p>
         </div>
         <button
@@ -105,7 +106,7 @@ export default function ComparePanel({ documents, onCancel }: ComparePanelProps)
               </div>
               <div>
                 <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest font-mono">
-                  Informe AI Generado
+                  Informe AI Generado ({provider === "cohere" ? "Cohere" : "Gemini"})
                 </span>
                 <h3 className="text-xs font-bold text-slate-200 font-sans">
                   Comparación de {selectedDocs.length} documentos
@@ -142,7 +143,7 @@ export default function ComparePanel({ documents, onCancel }: ComparePanelProps)
             Sintetizando diferencias y alineaciones...
           </p>
           <span className="text-[10px] font-bold text-slate-500 font-mono uppercase tracking-widest">
-            Gemini 3.5 Flash está procesando los documentos
+            {provider === "cohere" ? "Cohere Command" : "Gemini 3.5 Flash"} está procesando los documentos
           </span>
         </div>
       ) : (
@@ -228,7 +229,7 @@ export default function ComparePanel({ documents, onCancel }: ComparePanelProps)
                 id="btn-trigger-comparison"
               >
                 <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-                Comparar con Gemini AI
+                Comparar con {provider === "cohere" ? "Cohere" : "Gemini AI"}
               </button>
             </div>
           </div>
