@@ -1,13 +1,22 @@
 import React, { useState } from "react";
-import { UploadCloud, FileText, Check, AlertCircle, Sparkles, Loader2, FileSpreadsheet, Scale, Cpu, Users } from "lucide-react";
+import { UploadCloud, FileText, Check, AlertCircle, Sparkles, Loader2, FileSpreadsheet, Scale, Cpu, Users, Tag } from "lucide-react";
 import { DocumentItem } from "../types";
+import { useLanguage } from "../LanguageContext";
 
 interface DocumentUploaderProps {
   onAddDocument: (doc: DocumentItem) => void;
   onCancel: () => void;
+  userRole?: 'admin' | 'viewer';
+  aiProvider?: 'gemini' | 'cohere';
 }
 
-export default function DocumentUploader({ onAddDocument, onCancel }: DocumentUploaderProps) {
+export default function DocumentUploader({ 
+  onAddDocument, 
+  onCancel, 
+  userRole = "admin",
+  aiProvider = "gemini"
+}: DocumentUploaderProps) {
+  const { language } = useLanguage();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<DocumentItem["category"]>("General");
   const [content, setContent] = useState("");
@@ -15,6 +24,16 @@ export default function DocumentUploader({ onAddDocument, onCancel }: DocumentUp
   const [progressStep, setProgressStep] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [isParsingPdf, setIsParsingPdf] = useState(false);
+  const [tagInput, setTagInput] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+
+  const handleAddTag = () => {
+    const trimmed = tagInput.trim().replace(/[#,]/g, "");
+    if (trimmed && !tags.includes(trimmed)) {
+      setTags([...tags, trimmed]);
+      setTagInput("");
+    }
+  };
 
   const loadPdfJs = async (): Promise<any> => {
     if ((window as any).pdfjsLib) {
@@ -59,7 +78,11 @@ export default function DocumentUploader({ onAddDocument, onCancel }: DocumentUp
     const allowedTextExtensions = ["txt", "md", "json", "js", "ts", "csv", "xml", "html", "css"];
     
     if (extension !== "pdf" && !allowedTextExtensions.includes(extension || "")) {
-      setErrorMsg("Formato no soportado. Sube solo archivos de texto (.txt, .md, .json, .csv) o documentos PDF (.pdf).");
+      setErrorMsg(
+        language === "es"
+          ? "Formato no soportado. Sube solo archivos de texto (.txt, .md, .json, .csv) o documentos PDF (.pdf)."
+          : "Format not supported. Only upload text files (.txt, .md, .json, .csv) or PDF documents (.pdf)."
+      );
       return;
     }
 
@@ -86,7 +109,11 @@ export default function DocumentUploader({ onAddDocument, onCancel }: DocumentUp
         setContent(text);
       } catch (err: any) {
         console.error("Error parsing PDF:", err);
-        setErrorMsg("No se pudo extraer el texto de este PDF. Asegúrate de que no esté escaneado como imagen o protegido por contraseña.");
+        setErrorMsg(
+          language === "es"
+            ? "No se pudo extraer el texto de este PDF. Asegúrate de que no esté escaneado como imagen o protegido por contraseña."
+            : "Could not extract text from this PDF. Make sure it is not scanned as an image or password-protected."
+        );
       } finally {
         setIsParsingPdf(false);
       }
@@ -102,48 +129,121 @@ export default function DocumentUploader({ onAddDocument, onCancel }: DocumentUp
 
   const loadTemplate = (type: "invoice" | "nda" | "code") => {
     if (type === "invoice") {
-      setTitle("Nueva_Factura_Cloud_Enterprise_2026.txt");
-      setCategory("Financiero");
-      setContent(`BILLING STATEMENT - GLOBAL INFRASTRUCTURE LTD
-Invoice #: GI-99212
-Date: July 10, 2026
-Due Date: August 10, 2026
+      if (language === "es") {
+        setTitle("Nueva_Factura_CFDI_4.0_Servicios_2026.txt");
+        setCategory("Financiero");
+        setContent(`COMPROBANTE FISCAL DIGITAL POR INTERNET (CFDI 4.0)
+FACTURA COMERCIAL DE SERVICIOS - GLOBAL INFRASTRUCTURE DE MÉXICO S.A. DE C.V.
+Folio Fiscal (UUID): 9F3B4A22-839D-4F11-A512-E57A5F43E2C4
+Fecha de Emisión: 10 de Julio de 2026
+Lugar de Expedición: CP 06600, Ciudad de México, México
+Régimen Fiscal: 601 - General de Ley Personas Morales
 
-Billed to:
-DocuMind Corporation
-One Market Plaza, San Francisco, CA
+EMISOR:
+GLOBAL INFRASTRUCTURE DE MÉXICO S.A. DE C.V.
+RFC: GIM160412AA9
 
-Items:
-1. High-Performance GPU Cluster Deployment (H100 Nodes)
-   - 1000 hours computing - $2.50/hour - Total: $2,500.00 USD
-2. Persistent High-IOPS NVMe Block Storage (50 Terabytes)
-   - Monthly service fee - Total: $1,200.00 USD
+RECEPTOR:
+DOCUMIND MÉXICO S. DE R.L. DE C.V.
+RFC: DME220115BB4
+Domicilio Fiscal: Paseo de la Reforma 250, Juárez, Cuauhtémoc, 06600 Ciudad de México, CDMX
 
-Total Payable: $3,700.00 USD
+CONCEPTOS / SERVICIOS:
+1. ClaveProdServ: 81112000 - Servicios de datos y cómputo de alto rendimiento
+   - Concepto: Renta mensual de Servidor en la Nube con Nodos de GPU Dedicados (H100) para procesamiento de IA
+   - Cantidad: 1.00 | Unidad: E48 - Servicio | Valor Unitario: $45,000.00 MXN | Importe: $45,000.00 MXN
 
-Routing Bank: Silicon Valley Bank Corp
-Account: 884-321-9920-A
-Swift Code: SVBSUS33`);
+2. ClaveProdServ: 81112004 - Almacenamiento Vectorial e Base de Datos Indexada
+   - Concepto: Base de datos vectorial persistente de alto rendimiento (50 Terabytes SSD NVMe)
+   - Cantidad: 1.00 | Unidad: E48 - Servicio | Valor Unitario: $21,600.00 MXN | Importe: $21,600.00 MXN
+
+----------------------------------------------------------------------
+SUBTOTAL: $66,600.00 MXN
+IVA Trasladado (16%): $10,656.00 MXN
+TOTAL NETO A PAGAR: $77,256.00 MXN (Setenta y siete mil doscientos cincuenta y seis pesos 00/100 M.N.)
+
+MÉTODO DE PAGO: PPD - Pago en parcialidades o diferido
+FORMA DE PAGO: 99 - Por definir
+USO DE CFDI: G03 - Gastos en general`);
+      } else {
+        setTitle("New_Invoice_CFDI_4.0_Services_2026.txt");
+        setCategory("Financiero");
+        setContent(`DIGITAL TAX COMPROBANT VIA INTERNET (CFDI 4.0)
+COMMERCIAL SERVICE INVOICE - GLOBAL INFRASTRUCTURE OF MEXICO S.A. DE C.V.
+Fiscal Folio (UUID): 9F3B4A22-839D-4F11-A512-E57A5F43E2C4
+Emission Date: July 10, 2026
+Expedition Place: Zip Code 06600, Mexico City, Mexico
+Tax Regime: 601 - General Law of Moral Persons
+
+ISSUER:
+GLOBAL INFRASTRUCTURE OF MEXICO S.A. DE C.V.
+RFC: GIM160412AA9
+
+RECEIVER:
+DOCUMIND MEXICO S. DE R.L. DE C.V.
+RFC: DME220115BB4
+Fiscal Address: Paseo de la Reforma 250, Juarez, Cuauhtemoc, 06600 Mexico City, CDMX
+
+CONCEPTS / SERVICES:
+1. ProdServCode: 81112000 - High performance computing and data services
+   - Concept: Monthly Cloud Server rent with Dedicated GPU Nodes (H100) for AI processing
+   - Quantity: 1.00 | Unit: E48 - Service | Unit Value: $45,000.00 MXN | Import: $45,000.00 MXN
+
+2. ProdServCode: 81112004 - Vector Storage and Indexed Database
+   - Concept: High performance persistent vector database (50 Terabytes SSD NVMe)
+   - Quantity: 1.00 | Unit: E48 - Service | Unit Value: $21,600.00 MXN | Import: $21,600.00 MXN
+
+----------------------------------------------------------------------
+SUBTOTAL: $66,600.00 MXN
+VAT Transferred (16%): $10,656.00 MXN
+NET TOTAL TO PAY: $77,256.00 MXN (Seventy-seven thousand two hundred fifty-six pesos 00/100 M.N.)
+
+PAYMENT METHOD: PPD - Payment in installments or deferred
+PAYMENT FORM: 99 - To define
+CFDI USE: G03 - General expenses`);
+      }
     } else if (type === "nda") {
-      setTitle("Acuerdo_Confidencialidad_NDA_Borrador.txt");
-      setCategory("Legal");
-      setContent(`CONVENIO MUTUO DE CONFIDENCIALIDAD (NDA)
+      if (language === "es") {
+        setTitle("Acuerdo_Confidencialidad_NDA_Borrador.txt");
+        setCategory("Legal");
+        setContent(`CONVENIO MUTUO DE CONFIDENCIALIDAD (NDA)
 
-Este Convenio de Confidencialidad se celebra el 16 de Julio de 2026 entre:
-Parte Reveladora: DocuMind Corporation, con oficinas en California.
-Parte Receptora: Desarrollo y Tecnología S.A. de C.V., con oficinas en Madrid, España.
+Este Convenio de Confidencialidad y No Divulgación (en adelante, el "Convenio") se celebra el 16 de Julio de 2026 entre:
+Parte Reveladora: DocuMind México S. de R.L. de C.V., con domicilio en Paseo de la Reforma 250, Juárez, Cuauhtémoc, 06600 Ciudad de México, CDMX.
+Parte Receptora: Desarrollo y Tecnología S.A. de C.V., con domicilio en Avenida de la Constitución 14, Monterrey, Nuevo León, México.
 
-1. PROPÓSITO
-Las partes planean explorar una posible relación comercial relacionada con el procesamiento automatizado de documentos con inteligencia artificial de gran escala.
+1. OBJETO
+Las partes planean explorar una posible relación comercial relacionada con la integración de motores semánticos cognitivos de inteligencia artificial en el territorio de la República Mexicana.
 
 2. INFORMACIÓN CONFIDENCIAL
-Se entenderá por Información Confidencial todo dato técnico, comercial, código fuente, flujos de datos o información financiera revelada verbalmente o por escrito que esté marcada claramente como "Confidencial".
+Se entenderá por Información Confidencial todo dato técnico, comercial, código fuente, flujos de datos o información financiera revelada verbalmente o por escrito que esté marcada claramente como "Confidencial" o "Propiedad Intelectual".
 
 3. DURACIÓN DE LA OBLIGACIÓN
-La obligación de no divulgación persistirá por un término de cinco (5) años contados a partir de la fecha de terminación de las pláticas bilaterales de negocio.
+La obligación de no divulgación persistirá por un término de cinco (5) años contados a partir de la fecha de firma del presente instrumento o la terminación de las pláticas bilaterales de negocio.
 
-4. LEY DE REGENCIA
-Este contrato se regirá por las leyes del Estado de Nueva York, EE. UU. y cualquier conflicto se resolverá ante sus tribunales federales.`);
+4. LEY APLICABLE Y JURISDICCIÓN
+Este contrato se regirá e interpretará conforme a las leyes federales de los Estados Unidos Mexicanos. Para cualquier controversia, las partes se someten expresamente a la jurisdicción de los tribunales competentes de la Ciudad de México, renunciando a cualquier otro fuero que pudiere corresponderles por razón de sus domicilios presentes o futuros.`);
+      } else {
+        setTitle("Mutual_NDA_Confidentiality_Agreement_Draft.txt");
+        setCategory("Legal");
+        setContent(`MUTUAL CONFIDENTIALITY AGREEMENT (NDA)
+
+This Confidentiality and Non-Disclosure Agreement (hereinafter, the "Agreement") is entered into on July 16, 2026 by and between:
+Disclosing Party: DocuMind Mexico S. de R.L. de C.V., residing at Paseo de la Reforma 250, Juarez, Cuauhtemoc, 06600 Mexico City, CDMX.
+Receiving Party: Development and Technology S.A. de C.V., residing at Avenida de la Constitucion 14, Monterrey, Nuevo Leon, Mexico.
+
+1. PURPOSE
+The parties plan to explore a possible business relationship related to the integration of cognitive semantic artificial intelligence engines in the territory of the Mexican Republic.
+
+2. CONFIDENTIAL INFORMATION
+Confidential Information shall be understood as any technical, commercial, source code, data flows, or financial information disclosed verbally or in writing that is clearly marked as "Confidential" or "Intellectual Property".
+
+3. DURATION OF THE OBLIGATION
+The non-disclosure obligation shall persist for a term of five (5) years counted from the date of signing of this instrument or the termination of the bilateral business talks.
+
+4. APPLICABLE LAW AND JURISDICTION
+This contract shall be governed by and construed in accordance with the federal laws of the United States of Mexican States. For any controversy, the parties expressly submit to the jurisdiction of the competent courts of Mexico City, waiving any other jurisdiction that may correspond to them by reason of their present or future domiciles.`);
+      }
     } else if (type === "code") {
       setTitle("Microservicio_Ingesta_S3_Documentos.ts");
       setCategory("Técnico");
@@ -155,7 +255,7 @@ const s3 = new S3Client({ region: "us-east-1" });
 const DOCUMIND_API_URL = "https://api.documind.ai/v2/documents/extract";
 
 export async function processS3Trigger(bucketName: string, objectKey: string): Promise<any> {
-  console.log(\`[Ingest] Fetching object \${objectKey} from bucket \${bucketName}\`);
+  console.log('[Ingest] Fetching object ' + objectKey + ' from bucket ' + bucketName);
   
   const response = await s3.send(new GetObjectCommand({ Bucket: bucketName, Key: objectKey }));
   const fileContent = await response.Body?.transformToString();
@@ -181,20 +281,17 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !content.trim()) {
-      setErrorMsg("Por favor, ingresa un título y el contenido del documento.");
+      setErrorMsg(
+        language === "es"
+          ? "Por favor, ingresa un título y el contenido del documento."
+          : "Please enter a title and document content."
+      );
       return;
     }
 
     setErrorMsg("");
     setIsProcessing(true);
     setProgressStep(1); // Analysis started
-
-    const steps = [
-      "Analizando estructura gramatical y semántica...",
-      "Extrayendo metadatos clave con Gemini 3.5 Flash...",
-      "Calculando embeddings e indexando en almacenamiento seguro...",
-      "Clasificando e integrando al panel..."
-    ];
 
     // Simulate progress updates for a better premium feeling
     const interval = setInterval(() => {
@@ -237,23 +334,43 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
         status: "Deployed",
         createdAt: new Date().toISOString(),
         analysis: analysisResult,
+        tags: tags,
       };
 
       onAddDocument(newDoc);
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(`Error de Inteligencia AI: ${err.message || "Fallo en el servicio. Verifica tus credenciales."}`);
+      setErrorMsg(
+        language === "es"
+          ? `Error de Inteligencia AI: ${err.message || "Fallo en el servicio. Verifica tus credenciales."}`
+          : `AI Intelligence Error: ${err.message || "Service failure. Verify your credentials."}`
+      );
       setIsProcessing(false);
     }
   };
 
   const getStepText = (step: number) => {
     switch (step) {
-      case 1: return "Analizando estructura gramatical y semántica...";
-      case 2: return "Extrayendo metadatos clave con Gemini 3.5 Flash...";
-      case 3: return "Calculando embeddings e indexando en almacenamiento seguro...";
-      case 4: return "Clasificando e integrando al panel...";
-      default: return "Inicializando motores cognitivos...";
+      case 1:
+        return language === "es"
+          ? "Analizando estructura gramatical y semántica..."
+          : "Analyzing grammatical and semantic structure...";
+      case 2:
+        return language === "es"
+          ? (aiProvider === "cohere" ? "Extrayendo metadatos clave con Cohere Command..." : "Extrayendo metadatos clave con Gemini 3.5 Flash...")
+          : (aiProvider === "cohere" ? "Extracting key metadata with Cohere Command..." : "Extracting key metadata with Gemini 3.5 Flash...");
+      case 3:
+        return language === "es"
+          ? "Calculando embeddings e indexando en almacenamiento seguro..."
+          : "Calculating embeddings and indexing in secure vault...";
+      case 4:
+        return language === "es"
+          ? "Clasificando e integrando al panel..."
+          : "Classifying and integrating to panel...";
+      default:
+        return language === "es"
+          ? "Inicializando motores cognitivos..."
+          : "Initializing cognitive engines...";
     }
   };
 
@@ -263,20 +380,20 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
         <div className="flex flex-col items-center justify-center py-20 text-center max-w-md mx-auto">
           <Loader2 className="w-12 h-12 text-indigo-400 animate-spin mb-6" />
           <h3 className="text-base font-bold text-slate-100 mb-2">
-            Leyendo Documento PDF
+            {language === "es" ? "Leyendo Documento PDF" : "Reading PDF Document"}
           </h3>
           <p className="text-sm text-slate-300 mb-2 font-medium animate-pulse">
-            Extrayendo contenido de texto de forma segura...
+            {language === "es" ? "Extrayendo contenido de texto de forma segura..." : "Extracting text content securely..."}
           </p>
           <span className="text-[10px] font-bold text-slate-500 font-mono uppercase tracking-widest">
-            Procesamiento del lado del cliente
+            {language === "es" ? "Procesamiento del lado del cliente" : "Client-side processing"}
           </span>
         </div>
       ) : isProcessing ? (
         <div className="flex flex-col items-center justify-center py-20 text-center max-w-md mx-auto">
           <Loader2 className="w-12 h-12 text-indigo-400 animate-spin mb-6" />
           <h3 className="text-base font-bold text-slate-100 mb-2">
-            Procesando Inteligencia AI
+            {language === "es" ? "Procesando Inteligencia AI" : "Processing AI Intelligence"}
           </h3>
           <p className="text-sm text-slate-300 mb-6 font-medium animate-pulse">
             {getStepText(progressStep)}
@@ -290,7 +407,7 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
             />
           </div>
           <span className="text-[10px] font-bold text-slate-500 font-mono">
-            PASO {progressStep} DE 4
+            {language === "es" ? `PASO ${progressStep} DE 4` : `STEP ${progressStep} OF 4`}
           </span>
         </div>
       ) : (
@@ -298,10 +415,12 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
           <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
             <div>
               <h2 className="text-lg font-bold text-slate-100">
-                Ingesta de Nuevo Documento
+                {language === "es" ? "Ingesta de Nuevo Documento" : "Ingest New Document"}
               </h2>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Pega texto libre o sube un archivo de texto (.txt, .md, .csv) o un documento PDF (.pdf). DocuMind extraerá metadatos y categorizará usando IA en segundos.
+                {language === "es"
+                  ? "Pega texto libre o sube un archivo de texto (.txt, .md, .csv) o un documento PDF (.pdf). DocuMind extraerá metadatos y categorizará usando IA en segundos."
+                  : "Paste free text or upload a text file (.txt, .md, .csv) or a PDF document (.pdf). DocuMind will extract metadata and categorize using AI in seconds."}
               </p>
             </div>
             <button
@@ -309,9 +428,25 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
               onClick={onCancel}
               className="px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-100 bg-slate-950 border border-slate-800 rounded-xl hover:bg-slate-900 transition-all cursor-pointer"
             >
-              Cancelar
+              {language === "es" ? "Cancelar" : "Cancel"}
             </button>
           </div>
+
+          {userRole === "viewer" && (
+            <div className="mb-6 bg-rose-950/40 border border-rose-900/60 p-4 rounded-2xl flex items-start gap-3 text-rose-300 font-sans leading-relaxed text-xs">
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-bold text-rose-200 uppercase tracking-wide text-[11px] mb-1">
+                  {language === "es" ? "Acceso de Solo Lectura Activado" : "Read-Only Access Enabled"}
+                </h4>
+                <p>
+                  {language === "es" 
+                    ? "No posees permisos de escritura para registrar o procesar nuevos documentos en la bóveda. Para continuar, cambia tu rol a 'Administrador' utilizando el selector en la barra superior." 
+                    : "You do not have write permissions to upload or process documents in the secure vault. Please toggle your role to 'Admin' using the selector in the top bar to continue."}
+                </p>
+              </div>
+            </div>
+          )}
 
           {errorMsg && (
             <div className="p-3.5 bg-red-950/40 border border-red-900/60 rounded-xl flex items-start gap-2.5 text-xs text-red-300">
@@ -324,40 +459,55 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
           <div className="space-y-2.5">
             <span className="text-[11px] font-bold text-indigo-400 tracking-wide uppercase font-mono flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-              Probar Plantillas Rápidas de Negocio
+              {language === "es" ? "Probar Plantillas Rápidas de Negocio" : "Try Quick Business Templates"}
             </span>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
+                disabled={userRole === "viewer"}
                 onClick={() => loadTemplate("invoice")}
-                className="flex items-center gap-2.5 p-3 bg-slate-950/60 hover:bg-slate-950 text-left border border-slate-850 hover:border-emerald-500/40 rounded-xl text-xs text-slate-300 transition-all cursor-pointer group"
+                className="flex items-center gap-2.5 p-3 bg-slate-950/60 hover:bg-slate-950 text-left border border-slate-850 hover:border-emerald-500/40 rounded-xl text-xs text-slate-300 transition-all cursor-pointer group disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <FileSpreadsheet className="w-4 h-4 text-emerald-400 shrink-0" />
                 <div>
-                  <span className="font-semibold block text-slate-200 group-hover:text-slate-100">Factura Cloud</span>
-                  <span className="text-[10px] text-slate-500 font-mono">Financiero ($3,700)</span>
+                  <span className="font-semibold block text-slate-200 group-hover:text-slate-100">
+                    {language === "es" ? "Factura Cloud" : "Cloud Invoice"}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {language === "es" ? "Financiero ($3,700)" : "Financial ($3,700)"}
+                  </span>
                 </div>
               </button>
               <button
                 type="button"
+                disabled={userRole === "viewer"}
                 onClick={() => loadTemplate("nda")}
-                className="flex items-center gap-2.5 p-3 bg-slate-950/60 hover:bg-slate-950 text-left border border-slate-850 hover:border-indigo-500/40 rounded-xl text-xs text-slate-300 transition-all cursor-pointer group"
+                className="flex items-center gap-2.5 p-3 bg-slate-950/60 hover:bg-slate-950 text-left border border-slate-850 hover:border-indigo-500/40 rounded-xl text-xs text-slate-300 transition-all cursor-pointer group disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <Scale className="w-4 h-4 text-indigo-400 shrink-0" />
                 <div>
-                  <span className="font-semibold block text-slate-200 group-hover:text-slate-100">Borrador NDA</span>
-                  <span className="text-[10px] text-slate-500 font-mono">Contrato Legal</span>
+                  <span className="font-semibold block text-slate-200 group-hover:text-slate-100">
+                    {language === "es" ? "Borrador NDA" : "NDA Draft"}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {language === "es" ? "Contrato Legal" : "Legal Contract"}
+                  </span>
                 </div>
               </button>
               <button
                 type="button"
+                disabled={userRole === "viewer"}
                 onClick={() => loadTemplate("code")}
-                className="flex items-center gap-2.5 p-3 bg-slate-950/60 hover:bg-slate-950 text-left border border-slate-850 hover:border-cyan-500/40 rounded-xl text-xs text-slate-300 transition-all cursor-pointer group"
+                className="flex items-center gap-2.5 p-3 bg-slate-950/60 hover:bg-slate-950 text-left border border-slate-850 hover:border-cyan-500/40 rounded-xl text-xs text-slate-300 transition-all cursor-pointer group disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <Cpu className="w-4 h-4 text-cyan-400 shrink-0" />
                 <div>
-                  <span className="font-semibold block text-slate-200 group-hover:text-slate-100">Microservicio AWS</span>
-                  <span className="text-[10px] text-slate-500 font-mono">Código Técnico</span>
+                  <span className="font-semibold block text-slate-200 group-hover:text-slate-100">
+                    {language === "es" ? "Microservicio AWS" : "AWS Microservice"}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    {language === "es" ? "Código Técnico" : "Technical Code"}
+                  </span>
                 </div>
               </button>
             </div>
@@ -367,67 +517,159 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
             {/* Title */}
             <div className="md:col-span-2 space-y-2">
               <label className="text-xs font-bold text-slate-300 block" htmlFor="title-input">
-                Nombre del Archivo / Documento
+                {language === "es" ? "Nombre del Archivo / Documento" : "Filename / Document Name"}
               </label>
               <input
                 type="text"
                 id="title-input"
+                disabled={userRole === "viewer"}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="ej. Factura_Proveedor_04.txt o Acuerdo_Mutuo_NDA.txt"
-                className="w-full bg-slate-950 border border-slate-800/80 focus:border-indigo-500 focus:bg-slate-900 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all text-slate-200 placeholder-slate-600"
+                placeholder={
+                  language === "es"
+                    ? "ej. Factura_Proveedor_04.txt o Acuerdo_Mutuo_NDA.txt"
+                    : "e.g., Supplier_Invoice_04.txt or Mutual_NDA_Agreement.txt"
+                }
+                className="w-full bg-slate-950 border border-slate-800/80 focus:border-indigo-500 focus:bg-slate-900 rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all text-slate-200 placeholder-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
 
             {/* Category default */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-slate-300 block" htmlFor="category-select">
-                Categoría Sugerida (Inicial)
+                {language === "es" ? "Categoría Sugerida (Inicial)" : "Suggested Category (Initial)"}
               </label>
               <select
                 id="category-select"
+                disabled={userRole === "viewer"}
                 value={category}
                 onChange={(e) => setCategory(e.target.value as any)}
-                className="w-full bg-slate-950 border border-slate-800/80 focus:border-indigo-500 focus:bg-slate-900 rounded-xl px-3 py-2.5 text-xs outline-none transition-all cursor-pointer text-slate-200"
+                className="w-full bg-slate-950 border border-slate-800/80 focus:border-indigo-500 focus:bg-slate-900 rounded-xl px-3 py-2.5 text-xs outline-none transition-all cursor-pointer text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <option value="General" className="bg-slate-900 text-slate-200">General</option>
-                <option value="Financiero" className="bg-slate-900 text-slate-200">Financiero</option>
-                <option value="Legal" className="bg-slate-900 text-slate-200">Legal</option>
-                <option value="Técnico" className="bg-slate-900 text-slate-200">Técnico</option>
-                <option value="Recursos Humanos" className="bg-slate-900 text-slate-200">Recursos Humanos</option>
+                <option value="General" className="bg-slate-900 text-slate-200">
+                  {language === "es" ? "General" : "General"}
+                </option>
+                <option value="Financiero" className="bg-slate-900 text-slate-200">
+                  {language === "es" ? "Financiero" : "Financial"}
+                </option>
+                <option value="Legal" className="bg-slate-900 text-slate-200">
+                  {language === "es" ? "Legal" : "Legal"}
+                </option>
+                <option value="Técnico" className="bg-slate-900 text-slate-200">
+                  {language === "es" ? "Técnico" : "Technical"}
+                </option>
+                <option value="Recursos Humanos" className="bg-slate-900 text-slate-200">
+                  {language === "es" ? "Recursos Humanos" : "Human Resources"}
+                </option>
               </select>
             </div>
           </div>
 
+          {/* Custom Tags */}
+          <div className="space-y-2" id="uploader-custom-tags-section">
+            <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5" htmlFor="tags-input-field">
+              <Tag className="w-3.5 h-3.5 text-indigo-400" />
+              {language === "es" ? "Etiquetas Personalizadas" : "Custom Tags"}
+            </label>
+            <div className="flex flex-col gap-2 p-3 bg-slate-950 border border-slate-800 rounded-xl">
+              <div className="flex flex-wrap gap-1.5" id="added-tags-chips-container">
+                {tags.length === 0 ? (
+                  <span className="text-[11px] text-slate-500 italic">
+                    {language === "es" ? "Ninguna etiqueta añadida aún." : "No tags added yet."}
+                  </span>
+                ) : (
+                  tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold bg-indigo-950/60 text-indigo-300 border border-indigo-850/60 rounded-lg"
+                    >
+                      #{tag}
+                      <button
+                        type="button"
+                        onClick={() => setTags(tags.filter((t) => t !== tag))}
+                        className="text-slate-400 hover:text-rose-400 font-bold transition-colors ml-1 cursor-pointer"
+                        style={{ fontSize: '10px' }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))
+                )}
+              </div>
+              <div className="flex gap-2 mt-1">
+                <input
+                  type="text"
+                  id="tags-input-field"
+                  disabled={userRole === "viewer"}
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      handleAddTag();
+                    }
+                  }}
+                  placeholder={
+                    language === "es"
+                      ? "Escribe una etiqueta y presiona Enter o ','"
+                      : "Type a tag and press Enter or ','"
+                  }
+                  className="flex-1 bg-slate-900 border border-slate-800/80 focus:border-indigo-500 rounded-lg px-3 py-1.5 text-xs outline-none text-slate-200 placeholder-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+                <button
+                  type="button"
+                  disabled={userRole === "viewer" || !tagInput.trim()}
+                  onClick={handleAddTag}
+                  className="px-3 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg transition-all cursor-pointer"
+                  id="btn-add-uploader-tag"
+                >
+                  {language === "es" ? "Añadir" : "Add"}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Drag and Drop Zone Simulator */}
-          <div className="border-2 border-dashed border-slate-800 hover:border-indigo-500/50 rounded-2xl bg-slate-950/40 hover:bg-slate-950/80 p-6 text-center transition-all relative">
+          <div className={`border-2 border-dashed border-slate-800 rounded-2xl bg-slate-950/40 p-6 text-center transition-all relative ${userRole === "viewer" ? "opacity-40 cursor-not-allowed" : "hover:border-indigo-500/50 hover:bg-slate-950/80"}`}>
             <input
               type="file"
+              disabled={userRole === "viewer"}
               onChange={handleFileUpload}
               accept=".txt,.md,.json,.js,.ts,.csv,.pdf"
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full disabled:cursor-not-allowed"
               id="file-input-trigger"
             />
             <UploadCloud className="w-8 h-8 text-indigo-400 mx-auto mb-2.5 animate-pulse" />
             <h4 className="text-xs font-bold text-slate-200 mb-1">
-              Arrastra tu archivo aquí o haz clic para buscar
+              {language === "es" ? "Arrastra tu archivo aquí o haz clic para buscar" : "Drag your file here or click to browse"}
             </h4>
             <p className="text-[10px] text-slate-500 font-mono">
-              Soporta archivos de texto (.txt, .md, .csv) y documentos PDF (.pdf) (Máx. 5MB)
+              {language === "es"
+                ? "Soporta archivos de texto (.txt, .md, .csv) y documentos PDF (.pdf) (Máx. 5MB)"
+                : "Supports text files (.txt, .md, .csv) and PDF documents (.pdf) (Max 5MB)"}
             </p>
           </div>
 
           {/* Content rich textbox */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-300 block" htmlFor="content-input">
-              Contenido del Documento / Texto Libre
+              {language === "es" ? "Contenido del Documento / Texto Libre" : "Document Content / Free Text"}
             </label>
             <textarea
               id="content-input"
+              disabled={userRole === "viewer"}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Pega o escribe las cláusulas, montos, códigos, políticas o párrafos del documento que deseas que Gemini procese e indexe..."
-              className="w-full h-64 text-xs font-mono p-4 bg-slate-950 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl outline-none resize-none leading-relaxed text-slate-200 placeholder-slate-600"
+              placeholder={
+                language === "es"
+                  ? `Pega o escribe las cláusulas, montos, códigos, políticas o párrafos del documento que deseas que ${aiProvider === "cohere" ? "Cohere" : "Gemini"} procese e indexe...`
+                  : `Paste or write the clauses, amounts, codes, policies, or paragraphs of the document you want ${aiProvider === "cohere" ? "Cohere" : "Gemini"} to process and index...`
+              }
+              className={`w-full h-64 text-xs font-mono p-4 bg-slate-950 border focus:ring-1 rounded-xl outline-none resize-none leading-relaxed text-slate-200 placeholder-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all ${
+                aiProvider === "cohere" 
+                  ? "border-slate-800 focus:border-teal-500 focus:ring-teal-500" 
+                  : "border-slate-800 focus:border-indigo-500 focus:ring-indigo-500"
+              }`}
             />
           </div>
 
@@ -438,15 +680,26 @@ export async function processS3Trigger(bucketName: string, objectKey: string): P
               onClick={onCancel}
               className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-100 bg-slate-950 border border-slate-800 rounded-xl hover:bg-slate-900 transition-all cursor-pointer"
             >
-              Cancelar
+              {language === "es" ? "Cancelar" : "Cancel"}
             </button>
             <button
               type="submit"
-              className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-md shadow-indigo-600/10 flex items-center gap-1.5 cursor-pointer"
+              disabled={userRole === "viewer"}
+              className={`px-5 py-2 text-xs font-bold text-white rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                aiProvider === "cohere"
+                  ? "bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 shadow-teal-600/10"
+                  : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-indigo-600/10"
+              }`}
               id="btn-trigger-ingestion"
             >
-              <Sparkles className="w-3.5 h-3.5 animate-pulse" />
-              Guardar y Analizar con Gemini AI
+              {aiProvider === "cohere" ? (
+                <Cpu className="w-3.5 h-3.5 animate-pulse text-teal-200" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 animate-pulse text-purple-200" />
+              )}
+              {language === "es"
+                ? `Guardar y Analizar con ${aiProvider === "cohere" ? "Cohere" : "Gemini"} AI`
+                : `Save & Analyze with ${aiProvider === "cohere" ? "Cohere" : "Gemini"} AI`}
             </button>
           </div>
         </form>

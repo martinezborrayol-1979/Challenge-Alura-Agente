@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { INITIAL_DOCUMENTS } from "./initialDocuments";
 import { DocumentItem, ChatMessage } from "./types";
 import DocumentViewer from "./components/DocumentViewer";
 import AiInsightsPanel from "./components/AiInsightsPanel";
 import DocumentUploader from "./components/DocumentUploader";
 import ComparePanel from "./components/ComparePanel";
+import { useLanguage } from "./LanguageContext";
+import { useToast } from "./ToastContext";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Brain, 
@@ -24,10 +26,49 @@ import {
   X,
   FileCode,
   Layers,
-  Database
+  Database,
+  Languages,
+  Sun,
+  Moon,
+  Lock,
+  Unlock,
+  Download,
+  LayoutDashboard,
+  ArrowRight,
+  Upload,
+  Eye
 } from "lucide-react";
 
 export default function App() {
+  const { language, setLanguage, t } = useLanguage();
+  const { showToast } = useToast();
+
+  // Theme state: "dark" or "light" (high-contrast light)
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("documind_theme");
+    return (saved as "dark" | "light") || "dark";
+  });
+
+  // User Role state: "admin" (full read-write) or "viewer" (read-only)
+  const [userRole, setUserRole] = useState<"admin" | "viewer">(() => {
+    const saved = localStorage.getItem("documind_user_role");
+    return (saved as "admin" | "viewer") || "admin";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("documind_user_role", userRole);
+  }, [userRole]);
+
+  useEffect(() => {
+    localStorage.setItem("documind_theme", theme);
+    const html = document.documentElement;
+    if (theme === "light") {
+      html.classList.add("light");
+    } else {
+      html.classList.remove("light");
+    }
+  }, [theme]);
+
   // Load documents from localStorage or fall back to pre-defined ones
   const [documents, setDocuments] = useState<DocumentItem[]>(() => {
     const saved = localStorage.getItem("documind_docs");
@@ -42,6 +83,24 @@ export default function App() {
   const [activeView, setActiveView] = useState<"viewer" | "upload" | "compare">("viewer");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("Todos");
+
+  // RAG Optimization configurations (with localStorage persistence)
+  const [chunkSize, setChunkSize] = useState<number>(() => {
+    const saved = localStorage.getItem("documind_chunk_size");
+    return saved ? parseInt(saved, 10) : 1000;
+  });
+  const [retrievalK, setRetrievalK] = useState<number>(() => {
+    const saved = localStorage.getItem("documind_retrieval_k");
+    return saved ? parseInt(saved, 10) : 3;
+  });
+  const [temperature, setTemperature] = useState<number>(() => {
+    const saved = localStorage.getItem("documind_temperature");
+    return saved ? parseFloat(saved) : 0.1;
+  });
+  const [useCache, setUseCache] = useState<boolean>(() => {
+    const saved = localStorage.getItem("documind_use_cache");
+    return saved !== "false";
+  });
   
   // Clock state for Bento clock card
   const [time, setTime] = useState(new Date());
@@ -57,7 +116,19 @@ export default function App() {
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"document" | "ai">("document");
   const [docIdToDelete, setDocIdToDelete] = useState<string | null>(null);
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [isBatchDeleteConfirmOpen, setIsBatchDeleteConfirmOpen] = useState(false);
+
+  // Refs to prevent toast notifications on initial mounting
+  const isMountedLanguage = useRef(false);
+  const isMountedTheme = useRef(false);
+  const isMountedRole = useRef(false);
+  const isMountedChunkSize = useRef(false);
+  const isMountedRetrievalK = useRef(false);
+  const isMountedUseCache = useRef(false);
+  const isMountedAiProvider = useRef(false);
 
   const [aiProvider, setAiProvider] = useState<"gemini" | "cohere">("gemini");
   const [apiKeysStatus, setApiKeysStatus] = useState({ hasGemini: true, hasCohere: false });
@@ -95,6 +166,104 @@ export default function App() {
     localStorage.setItem("documind_chats", JSON.stringify(chatsByDoc));
   }, [chatsByDoc]);
 
+  useEffect(() => {
+    localStorage.setItem("documind_chunk_size", chunkSize.toString());
+    if (!isMountedChunkSize.current) {
+      isMountedChunkSize.current = true;
+      return;
+    }
+    showToast(
+      language === "es"
+        ? `Tamaño de fragmento (Chunk Size) establecido a ${chunkSize} caracteres`
+        : `Chunk size configured to ${chunkSize} characters`,
+      "info"
+    );
+  }, [chunkSize]);
+
+  useEffect(() => {
+    localStorage.setItem("documind_retrieval_k", retrievalK.toString());
+    if (!isMountedRetrievalK.current) {
+      isMountedRetrievalK.current = true;
+      return;
+    }
+    showToast(
+      language === "es"
+        ? `Límite de recuperación (Top K) establecido a K = ${retrievalK}`
+        : `Retrieval limit (Top K) configured to K = ${retrievalK}`,
+      "info"
+    );
+  }, [retrievalK]);
+
+  useEffect(() => {
+    localStorage.setItem("documind_temperature", temperature.toString());
+  }, [temperature]);
+
+  useEffect(() => {
+    localStorage.setItem("documind_use_cache", useCache.toString());
+    if (!isMountedUseCache.current) {
+      isMountedUseCache.current = true;
+      return;
+    }
+    showToast(
+      useCache
+        ? (language === "es" ? "Caché de LLM habilitada exitosamente" : "LLM caching successfully enabled")
+        : (language === "es" ? "Caché de LLM deshabilitada" : "LLM caching disabled"),
+      "info"
+    );
+  }, [useCache]);
+
+  useEffect(() => {
+    if (!isMountedLanguage.current) {
+      isMountedLanguage.current = true;
+      return;
+    }
+    showToast(
+      language === "es"
+        ? "Idioma cambiado a Español"
+        : "Language changed to English",
+      "success"
+    );
+  }, [language]);
+
+  useEffect(() => {
+    if (!isMountedTheme.current) {
+      isMountedTheme.current = true;
+      return;
+    }
+    showToast(
+      theme === "dark"
+        ? (language === "es" ? "Tema oscuro activado" : "Dark theme enabled")
+        : (language === "es" ? "Contraste claro activado" : "Accessible light theme enabled"),
+      "success"
+    );
+  }, [theme]);
+
+  useEffect(() => {
+    if (!isMountedRole.current) {
+      isMountedRole.current = true;
+      return;
+    }
+    showToast(
+      userRole === "admin"
+        ? (language === "es" ? "Acceso completo de Administrador habilitado" : "Full Administrator access enabled")
+        : (language === "es" ? "Rol cambiado a Visor de solo lectura" : "Role changed to read-only Viewer"),
+      "success"
+    );
+  }, [userRole]);
+
+  useEffect(() => {
+    if (!isMountedAiProvider.current) {
+      isMountedAiProvider.current = true;
+      return;
+    }
+    showToast(
+      aiProvider === "gemini"
+        ? (language === "es" ? "Cambiado al motor de Inteligencia Artificial Gemini" : "Switched to Gemini AI engine")
+        : (language === "es" ? "Cambiado al motor de Inteligencia Artificial Cohere" : "Switched to Cohere AI engine"),
+      "success"
+    );
+  }, [aiProvider]);
+
   // Live timer tick
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -122,38 +291,201 @@ export default function App() {
       setActiveDocId(remainingDocs[0]?.id || "");
     }
     setDocIdToDelete(null);
+    showToast(
+      language === "es"
+        ? "Documento eliminado de la bóveda permanentemente"
+        : "Document permanently deleted from vault",
+      "success"
+    );
+  };
+
+  // Clear selected doc IDs if role changes to viewer
+  useEffect(() => {
+    if (userRole === "viewer") {
+      setSelectedDocIds([]);
+    }
+  }, [userRole]);
+
+  const handleBatchExportMarkdown = () => {
+    const selectedDocs = documents.filter((d) => selectedDocIds.includes(d.id));
+    if (selectedDocs.length === 0) return;
+
+    let md = `# ${language === "es" ? "Lote de Documentos Exportados" : "Exported Documents Batch"}\n`;
+    md += `*${language === "es" ? "Fecha de Exportación" : "Export Date"}: ${new Date().toLocaleString()}*\n`;
+    md += `*${language === "es" ? "Documentos seleccionados" : "Selected documents"}: ${selectedDocs.length}*\n\n`;
+    md += `========================================\n\n`;
+
+    selectedDocs.forEach((doc, idx) => {
+      md += `## [${idx + 1}] ${doc.title}\n\n`;
+      md += `- **${language === "es" ? "Categoría" : "Category"}:** ${doc.category}\n`;
+      md += `- **${language === "es" ? "Creado" : "Created"}:** ${doc.createdAt}\n`;
+      if (doc.tags && doc.tags.length > 0) {
+        md += `- **Tags:** ${doc.tags.join(", ")}\n`;
+      }
+      md += `\n### ${language === "es" ? "Contenido" : "Content"}\n\n${doc.content}\n\n`;
+      
+      if (doc.executiveSummary) {
+        md += `### ${language === "es" ? "Resumen Ejecutivo AI" : "AI Executive Summary"}\n\n${doc.executiveSummary}\n\n`;
+      }
+      
+      md += `---\n\n`;
+    });
+
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = window.document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `batch_export_${Date.now()}.md`);
+    window.document.body.appendChild(link);
+    link.click();
+    window.document.body.removeChild(link);
+    
+    showToast(
+      language === "es"
+        ? `Se exportaron ${selectedDocs.length} documentos como Markdown`
+        : `Exported ${selectedDocs.length} documents as Markdown`,
+      "success"
+    );
+  };
+
+  const handleBatchExportJson = () => {
+    const selectedDocs = documents.filter((d) => selectedDocIds.includes(d.id));
+    if (selectedDocs.length === 0) return;
+
+    const dataStr = JSON.stringify(selectedDocs, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = window.document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `batch_export_${Date.now()}.json`);
+    window.document.body.appendChild(link);
+    link.click();
+    window.document.body.removeChild(link);
+
+    showToast(
+      language === "es"
+        ? `Se exportaron ${selectedDocs.length} documentos como JSON`
+        : `Exported ${selectedDocs.length} documents as JSON`,
+      "success"
+    );
+  };
+
+  const handleBatchExportIndividual = () => {
+    const selectedDocs = documents.filter((d) => selectedDocIds.includes(d.id));
+    if (selectedDocs.length === 0) return;
+
+    selectedDocs.forEach((doc, idx) => {
+      setTimeout(() => {
+        let md = `# ${doc.title}\n\n`;
+        md += `**${language === "es" ? "Categoría" : "Category"}:** ${doc.category}\n`;
+        md += `**${language === "es" ? "Fecha" : "Date"}:** ${doc.createdAt}\n\n`;
+        md += `## ${language === "es" ? "Contenido" : "Content"}\n\n${doc.content}\n\n`;
+
+        if (doc.executiveSummary) {
+          md += `## ${language === "es" ? "Resumen Ejecutivo AI" : "AI Executive Summary"}\n\n${doc.executiveSummary}\n\n`;
+        }
+
+        if (doc.versions && doc.versions.length > 0) {
+          md += `## ${language === "es" ? "Historial de Versiones" : "Version History"}\n\n`;
+          doc.versions.forEach((v) => {
+            md += `### ${v.timestamp} - ${v.changeSummary}\n\n${v.content}\n\n---\n\n`;
+          });
+        }
+
+        const blob = new Blob([md], { type: "text/markdown;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = window.document.createElement("a");
+        link.href = url;
+        const safeTitle = (doc.title || "document").replace(/[^a-zA-Z0-9íóáúéñÍÓÁÚÉÑ]/g, "_").toLowerCase();
+        link.setAttribute("download", `${safeTitle}.md`);
+        window.document.body.appendChild(link);
+        link.click();
+        window.document.body.removeChild(link);
+      }, idx * 150);
+    });
+
+    showToast(
+      language === "es"
+        ? `Descargando ${selectedDocs.length} archivos individualmente...`
+        : `Downloading ${selectedDocs.length} files individually...`,
+      "success"
+    );
+  };
+
+  const handleConfirmBatchDelete = () => {
+    if (selectedDocIds.length === 0) return;
+
+    const remainingDocs = documents.filter((doc) => !selectedDocIds.includes(doc.id));
+    setDocuments(remainingDocs);
+
+    // Clear chats for deleted documents
+    const updatedChats = { ...chatsByDoc };
+    selectedDocIds.forEach((id) => {
+      delete updatedChats[id];
+    });
+    setChatsByDoc(updatedChats);
+
+    // Update activeDocId if active document was deleted
+    if (selectedDocIds.includes(activeDocId)) {
+      setActiveDocId(remainingDocs[0]?.id || "");
+    }
+
+    const countDeleted = selectedDocIds.length;
+    setSelectedDocIds([]);
+    setIsBatchDeleteConfirmOpen(false);
+
+    showToast(
+      language === "es"
+        ? `Se eliminaron ${countDeleted} documentos de la bóveda permanentemente`
+        : `Permanently deleted ${countDeleted} documents from the vault`,
+      "success"
+    );
   };
 
   // Handle content update (Inline Editing)
-  const handleUpdateContent = (id: string, newContent: string, changeSummary?: string) => {
+  const handleUpdateContent = (id: string, newContent: string, changeSummary?: string, updatedTags?: string[]) => {
     setDocuments((prevDocs) =>
       prevDocs.map((doc) => {
         if (doc.id !== id) return doc;
-        if (doc.content === newContent) return doc;
+        
+        const tagsChanged = updatedTags !== undefined && JSON.stringify(doc.tags || []) !== JSON.stringify(updatedTags);
+        const contentChanged = doc.content !== newContent;
 
-        const timestampStr = new Date().toLocaleString("es-ES", {
-          day: "numeric",
-          month: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+        if (!contentChanged && !tagsChanged) return doc;
 
-        const newVersion = {
-          id: `v-${Date.now()}`,
-          content: doc.content,
-          timestamp: timestampStr,
-          title: doc.title,
-          changeSummary: changeSummary || "Edición manual",
-        };
+        let existingVersions = doc.versions || [];
+        if (contentChanged) {
+          const timestampStr = new Date().toLocaleString("es-ES", {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
 
-        const existingVersions = doc.versions || [];
+          const newVersion = {
+            id: `v-${Date.now()}`,
+            content: doc.content,
+            timestamp: timestampStr,
+            title: doc.title,
+            changeSummary: changeSummary || "Edición manual",
+          };
+          existingVersions = [newVersion, ...existingVersions];
+        }
 
         return {
           ...doc,
           content: newContent,
-          versions: [newVersion, ...existingVersions],
+          versions: existingVersions,
+          tags: updatedTags !== undefined ? updatedTags : doc.tags,
         };
       })
+    );
+
+    showToast(
+      language === "es"
+        ? "¡Nueva versión guardada correctamente!"
+        : "New version successfully saved!",
+      "success"
     );
   };
 
@@ -188,6 +520,13 @@ export default function App() {
           versions: [currentVersion, ...updatedVersions],
         };
       })
+    );
+
+    showToast(
+      language === "es"
+        ? "¡Versión del documento restaurada correctamente!"
+        : "Document version successfully restored!",
+      "success"
     );
   };
 
@@ -228,8 +567,20 @@ export default function App() {
             : doc
         )
       );
+
+      showToast(
+        language === "es"
+          ? "¡Análisis AI generado exitosamente!"
+          : "AI Analysis successfully generated!",
+        "success"
+      );
     } catch (err: any) {
-      alert(`Error reanalizando el documento: ${err.message || "Fallo técnico"}`);
+      showToast(
+        language === "es"
+          ? `Error reanalizando el documento: ${err.message || "Fallo técnico"}`
+          : `Error reanalyzing document: ${err.message || "Technical failure"}`,
+        "error"
+      );
     } finally {
       setIsAnalyzing(false);
     }
@@ -272,15 +623,33 @@ export default function App() {
             : doc
         )
       );
+
+      showToast(
+        language === "es"
+          ? "¡Resumen ejecutivo generado correctamente!"
+          : "Executive summary successfully generated!",
+        "success"
+      );
     } catch (err: any) {
-      alert(`Error al generar el resumen ejecutivo: ${err.message || "Fallo técnico"}`);
+      showToast(
+        language === "es"
+          ? `Error al generar el resumen ejecutivo: ${err.message || "Fallo técnico"}`
+          : `Error generating executive summary: ${err.message || "Technical failure"}`,
+        "error"
+      );
     } finally {
       setIsGeneratingSummary(false);
     }
   };
 
   // Handle custom interactive Q&A (Contextual Chat)
-  const handleSendMessage = async (docId: string, messageText: string, lowLatency: boolean = true) => {
+  const handleSendMessage = async (
+    docId: string, 
+    messageText: string, 
+    lowLatency: boolean = true,
+    technique: "standard" | "cot" | "cove" = "standard",
+    useSearchGrounding: boolean = false
+  ) => {
     const targetDoc = documents.find((doc) => doc.id === docId);
     if (!targetDoc) return;
 
@@ -294,10 +663,12 @@ export default function App() {
     // Append user message instantly
     const docChats = chatsByDoc[docId] || [];
     const updatedChatsWithUser = [...docChats, userMessage];
-    setChatsByDoc({
+    const newChatsMap = {
       ...chatsByDoc,
       [docId]: updatedChatsWithUser,
-    });
+    };
+    setChatsByDoc(newChatsMap);
+    localStorage.setItem("documind_chats", JSON.stringify(newChatsMap));
 
     setIsChatLoading(true);
 
@@ -313,12 +684,20 @@ export default function App() {
           history: docChats, // send existing conversation context
           lowLatency,
           provider: aiProvider,
+          promptTechnique: technique,
+          category: targetDoc.category,
+          role: userRole,
+          chunkSize,
+          retrievalK,
+          temperature,
+          useCache,
+          useSearchGrounding,
         }),
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Error en el procesamiento del chat");
+         const errData = await response.json();
+         throw new Error(errData.error || "Error en el procesamiento del chat");
       }
 
       const data = await response.json();
@@ -328,12 +707,19 @@ export default function App() {
         role: "assistant",
         content: data.text,
         timestamp: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
+        metrics: data.metrics,
+        guardrails: data.guardrails,
+        thinkingProcess: data.thinkingProcess,
+        promptTechnique: technique,
+        searchSources: data.searchSources,
       };
 
-      setChatsByDoc((prev) => ({
-        ...prev,
+      const finalChatsMap = {
+        ...chatsByDoc,
         [docId]: [...updatedChatsWithUser, assistantMessage],
-      }));
+      };
+      setChatsByDoc(finalChatsMap);
+      localStorage.setItem("documind_chats", JSON.stringify(finalChatsMap));
     } catch (err: any) {
       const errorMessage: ChatMessage = {
         id: "msg-err-" + Date.now(),
@@ -341,12 +727,66 @@ export default function App() {
         content: `Error al contactar a ${aiProvider === "cohere" ? "Cohere" : "Gemini"}: ${err.message || "Revisa la conexión de red."}`,
         timestamp: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }),
       };
-      setChatsByDoc((prev) => ({
-        ...prev,
+      const errorChatsMap = {
+        ...chatsByDoc,
         [docId]: [...updatedChatsWithUser, errorMessage],
-      }));
+      };
+      setChatsByDoc(errorChatsMap);
+      localStorage.setItem("documind_chats", JSON.stringify(errorChatsMap));
     } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  // Handle user feedback loop (Thumbs Up / Down + Audit comments)
+  const handleSaveFeedback = async (messageId: string, liked: boolean, comment?: string) => {
+    if (!activeDoc) return;
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messageId,
+          docId: activeDoc.id,
+          liked,
+          comment,
+        }),
+      });
+      
+      if (response.ok) {
+        // Update local chats state and persist to localStorage
+        const docChats = chatsByDoc[activeDoc.id] || [];
+        const updated = docChats.map((msg) => {
+          if (msg.id === messageId) {
+            return {
+              ...msg,
+              feedback: {
+                liked,
+                comment: comment !== undefined ? comment : msg.feedback?.comment || "",
+              },
+            };
+          }
+          return msg;
+        });
+        
+        const newChatsMap = {
+          ...chatsByDoc,
+          [activeDoc.id]: updated,
+        };
+        setChatsByDoc(newChatsMap);
+        localStorage.setItem("documind_chats", JSON.stringify(newChatsMap));
+        
+        showToast(
+          language === "es"
+            ? "¡Retroalimentación guardada exitosamente!"
+            : "Feedback successfully saved!",
+          "success"
+        );
+      }
+    } catch (err) {
+      console.error("Error saving feedback:", err);
     }
   };
 
@@ -354,7 +794,8 @@ export default function App() {
   const filteredDocuments = documents.filter((doc) => {
     const matchesSearch =
       doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.content.toLowerCase().includes(searchQuery.toLowerCase());
+      doc.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (doc.tags && doc.tags.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase())));
     
     const matchesCategory =
       selectedCategory === "Todos" || doc.category === selectedCategory;
@@ -362,7 +803,13 @@ export default function App() {
     return matchesSearch && matchesCategory;
   });
 
-  const activeDoc = documents.find((doc) => doc.id === activeDocId) || documents[0];
+  const activeDoc = documents.find((doc) => doc.id === activeDocId);
+
+  useEffect(() => {
+    if (activeDoc) {
+      setMobileTab("document");
+    }
+  }, [activeDoc?.id]);
 
   const getCategoryIcon = (cat: string) => {
     switch (cat) {
@@ -424,10 +871,10 @@ export default function App() {
               </div>
               <div>
                 <h1 className="text-sm font-bold text-slate-100 tracking-tight font-sans">
-                  DocuMind AI
+                  {t("app.title")}
                 </h1>
                 <span className="text-[10px] text-indigo-400 font-bold font-mono tracking-wider block -mt-0.5 uppercase">
-                  Bento Cognitive Suite
+                  {t("app.subtitle")}
                 </span>
               </div>
             </div>
@@ -441,43 +888,48 @@ export default function App() {
             </button>
           </div>
 
-          {/* Infrastructure Health Card */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="text-[10px] font-semibold text-slate-400 font-mono">
-                Bóveda Segura Operativa
+          {/* Repository Stats Block */}
+          <div className="flex flex-col gap-2">
+            <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between text-xs">
+              <span className="text-slate-400 font-medium">{language === "es" ? "Bóveda Segura" : "Secure Vault"}</span>
+              <span className="font-mono text-indigo-400 font-bold bg-indigo-950/40 px-2.5 py-0.5 rounded-lg border border-indigo-900/30">
+                {documents.length} {language === "es" ? "Docs" : "Docs"}
               </span>
             </div>
-            <div className="flex items-center gap-1 text-[10px] text-indigo-400 font-bold font-mono">
-              <Cloud className="w-3.5 h-3.5" />
-              <span>{documents.length} Synced</span>
-            </div>
-          </div>
-
-          {/* Bento Clock / Date Card */}
-          <div className="bg-amber-500 text-amber-950 border border-amber-400 rounded-xl p-3.5 flex flex-col justify-between shadow-lg shadow-amber-500/10">
-            <div className="text-[9px] font-bold uppercase tracking-widest opacity-85 font-mono">London UTC</div>
-            <div className="text-3xl font-mono font-bold leading-none my-1">
-              {time.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
-            </div>
-            <div className="text-[10px] font-semibold opacity-90 uppercase">
-              {time.toLocaleDateString("es-ES", { weekday: "short", month: "short", day: "numeric" })}
-            </div>
+            
+            <button
+              onClick={() => {
+                setActiveDocId("");
+                setActiveView("viewer");
+              }}
+              className={`w-full py-2 px-3 rounded-xl border font-sans text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                activeView === "viewer" && !activeDocId
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/15"
+                  : "bg-slate-950/40 text-slate-300 border-slate-800/80 hover:bg-slate-800/80 hover:text-white"
+              }`}
+              id="btn-sidebar-dashboard"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              <span>{language === "es" ? "Inicio de la Bóveda" : "Vault Dashboard"}</span>
+            </button>
           </div>
         </div>
 
         {/* Categories Quick Filter tab list */}
         <div className="px-5 py-3 border-b border-slate-800/80 bg-slate-950/20">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono block mb-2">
-            Categorías
+            {language === "es" ? "Categorías" : "Categories"}
           </span>
           <div className="flex flex-wrap gap-1">
             {["Todos", "Financiero", "Legal", "Técnico", "Recursos Humanos"].map((cat) => {
               const isSelected = selectedCategory === cat;
+              let displayLabel = cat;
+              if (cat === "Todos") displayLabel = t("category.all");
+              else if (cat === "Financiero") displayLabel = t("category.financial");
+              else if (cat === "Legal") displayLabel = t("category.legal");
+              else if (cat === "Técnico") displayLabel = t("category.technical");
+              else if (cat === "Recursos Humanos" || cat === "Personal") displayLabel = t("category.hr");
+
               return (
                 <button
                   key={cat}
@@ -491,7 +943,7 @@ export default function App() {
                       : "bg-slate-950/40 text-slate-400 border-slate-800/80 hover:bg-slate-800/80"
                   }`}
                 >
-                  <span>{cat}</span>
+                  <span>{displayLabel}</span>
                   <span className={`px-1 rounded-full text-[8px] ${isSelected ? "bg-white/20 text-white" : "bg-slate-800 text-slate-500"}`}>
                     {countByCategory(cat)}
                   </span>
@@ -508,7 +960,7 @@ export default function App() {
             <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder="Buscar documento en bóveda..."
+              placeholder={t("search.placeholder")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800/80 focus:border-indigo-500 focus:bg-slate-900 rounded-lg pl-9 pr-4 py-2 text-xs outline-none transition-all font-sans text-slate-200 placeholder-slate-500"
@@ -524,15 +976,123 @@ export default function App() {
             )}
           </div>
 
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono block mb-2 px-1">
-            Archivos del Repositorio ({filteredDocuments.length})
-          </span>
+          {/* Batch Actions Panel */}
+          {userRole === "admin" && selectedDocIds.length > 0 && (
+            <div 
+              className="mb-3.5 p-3 bg-indigo-950/30 border border-indigo-800/40 rounded-xl flex flex-col gap-2.5 animate-in slide-in-from-top-2 duration-200"
+              id="batch-actions-panel"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="px-1.5 py-0.5 bg-indigo-600 text-white rounded-md text-[10px] font-bold font-mono">
+                    {selectedDocIds.length}
+                  </span>
+                  <span className="text-[11px] font-semibold text-indigo-200">
+                    {language === "es" ? "seleccionados" : "selected"}
+                  </span>
+                </div>
+                
+                <button
+                  onClick={() => setSelectedDocIds([])}
+                  className="text-[10px] font-bold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                  id="btn-clear-selection"
+                >
+                  {language === "es" ? "Limpiar" : "Clear"}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 relative">
+                {/* Export Options dropdown or button */}
+                <div className="relative group/batch-export">
+                  <button
+                    className="w-full bg-slate-950 hover:bg-slate-900 text-emerald-400 py-1.5 px-2.5 rounded-lg font-bold text-[11px] border border-slate-800 hover:border-emerald-500/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    id="btn-batch-export"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{language === "es" ? "Exportar" : "Export"}</span>
+                  </button>
+                  
+                  {/* Hover dropdown for export choices */}
+                  <div className="absolute left-0 right-0 mt-1 bg-slate-950 border border-slate-800 rounded-lg shadow-xl hidden group-hover/batch-export:block hover:block z-40 p-1 space-y-0.5">
+                    <button
+                      onClick={handleBatchExportMarkdown}
+                      className="w-full text-left px-2 py-1.5 text-[10px] font-medium text-slate-300 hover:bg-slate-900 hover:text-emerald-400 rounded-md transition-colors cursor-pointer"
+                      id="btn-batch-export-md"
+                    >
+                      📄 {language === "es" ? "Markdown (.md)" : "Markdown (.md)"}
+                    </button>
+                    <button
+                      onClick={handleBatchExportJson}
+                      className="w-full text-left px-2 py-1.5 text-[10px] font-medium text-slate-300 hover:bg-slate-900 hover:text-emerald-400 rounded-md transition-colors cursor-pointer"
+                      id="btn-batch-export-json"
+                    >
+                      📦 {language === "es" ? "JSON (.json)" : "JSON (.json)"}
+                    </button>
+                    <button
+                      onClick={handleBatchExportIndividual}
+                      className="w-full text-left px-2 py-1.5 text-[10px] font-medium text-slate-300 hover:bg-slate-900 hover:text-emerald-400 rounded-md transition-colors cursor-pointer"
+                      id="btn-batch-export-indiv"
+                    >
+                      📥 {language === "es" ? "Por separado" : "Separately"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Batch Delete button */}
+                <button
+                  onClick={() => setIsBatchDeleteConfirmOpen(true)}
+                  className="bg-red-950/30 hover:bg-red-600 text-red-400 hover:text-white py-1.5 px-2.5 rounded-lg font-bold text-[11px] border border-red-900/30 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  id="btn-batch-delete"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{language === "es" ? "Eliminar" : "Delete"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* List Header with Select All option */}
+          <div className="flex items-center justify-between mb-2 px-1 shrink-0">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono block">
+              {language === "es" ? "Archivos del Repositorio" : "Repository Files"} ({filteredDocuments.length})
+            </span>
+            
+            {userRole === "admin" && filteredDocuments.length > 0 && (
+              <button
+                onClick={() => {
+                  const allVisibleIds = filteredDocuments.map((doc) => doc.id);
+                  const isAllSelected = allVisibleIds.every((id) => selectedDocIds.includes(id));
+                  if (isAllSelected) {
+                    // Deselect all visible
+                    setSelectedDocIds((prev) => prev.filter((id) => !allVisibleIds.includes(id)));
+                  } else {
+                    // Select all visible
+                    setSelectedDocIds((prev) => {
+                      const newSelection = [...prev];
+                      allVisibleIds.forEach((id) => {
+                        if (!newSelection.includes(id)) {
+                          newSelection.push(id);
+                        }
+                      });
+                      return newSelection;
+                    });
+                  }
+                }}
+                className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 transition-colors font-sans cursor-pointer"
+                id="btn-select-all-filtered"
+              >
+                {filteredDocuments.every((doc) => selectedDocIds.includes(doc.id))
+                  ? (language === "es" ? "Deseleccionar todo" : "Deselect All")
+                  : (language === "es" ? "Seleccionar todo" : "Select All")}
+              </button>
+            )}
+          </div>
 
           {/* Document scroll container */}
           <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
             {filteredDocuments.length === 0 ? (
               <div className="text-center py-10 text-slate-500 text-xs font-mono">
-                Ningún documento encontrado.
+                {t("search.no_docs")}
               </div>
             ) : (
               filteredDocuments.map((doc) => {
@@ -551,6 +1111,27 @@ export default function App() {
                         : "bg-slate-950/30 border-slate-850 hover:bg-slate-800/40"
                     } ${getCategoryColorBorder(doc.category)}`}
                   >
+                    {userRole === "admin" && (
+                      <div 
+                        className="flex items-center h-5 mr-2.5 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedDocIds.includes(doc.id)}
+                          onChange={() => {
+                            setSelectedDocIds((prev) =>
+                              prev.includes(doc.id)
+                                ? prev.filter((id) => id !== doc.id)
+                                : [...prev, doc.id]
+                            );
+                          }}
+                          className="w-4 h-4 rounded border-slate-800 bg-slate-950 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 cursor-pointer accent-indigo-600"
+                          id={`checkbox-select-doc-${doc.id}`}
+                        />
+                      </div>
+                    )}
+
                     <div className="flex-1 min-w-0 pr-2">
                       <div className="flex items-center gap-2 min-w-0">
                         {getCategoryIcon(doc.category)}
@@ -564,28 +1145,33 @@ export default function App() {
                       
                       <div className="flex items-center gap-2 mt-1.5">
                         <span className="text-[9px] text-slate-500 font-mono">
-                          {new Date(doc.createdAt).toLocaleDateString("es-ES", {
+                          {new Date(doc.createdAt).toLocaleDateString(language === "es" ? "es-MX" : "en-US", {
                             month: "short",
                             day: "numeric",
                           })}
                         </span>
                         <span className="text-[8px] text-slate-500">•</span>
                         <span className="text-[9px] font-semibold text-indigo-400">
-                          {doc.category}
+                          {doc.category === "Financiero" ? t("category.financial") :
+                           doc.category === "Legal" ? t("category.legal") :
+                           doc.category === "Técnico" ? t("category.technical") :
+                           doc.category === "Recursos Humanos" ? t("category.hr") : doc.category}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
                       {/* Trash Delete button */}
-                      <button
-                        onClick={(e) => handleDeleteDocument(doc.id, e)}
-                        className="opacity-40 hover:opacity-100 group-hover:opacity-100 p-1 hover:bg-red-950/50 text-slate-400 hover:text-red-400 rounded-md transition-all cursor-pointer"
-                        title="Eliminar documento"
-                        id={`btn-delete-sidebar-${doc.id}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {userRole === "admin" && (
+                        <button
+                          onClick={(e) => handleDeleteDocument(doc.id, e)}
+                          className="opacity-40 hover:opacity-100 group-hover:opacity-100 p-1 hover:bg-red-950/50 text-slate-400 hover:text-red-400 rounded-md transition-all cursor-pointer"
+                          title={language === "es" ? "Eliminar documento" : "Delete document"}
+                          id={`btn-delete-sidebar-${doc.id}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
                       {/* Status dot */}
                       <span className={`w-2 h-2 rounded-full ${
@@ -610,7 +1196,7 @@ export default function App() {
             id="btn-sidebar-new-doc"
           >
             <Plus className="w-4 h-4" />
-            Ingresar Documento
+            {t("btn.new_doc")}
           </button>
           
           <button
@@ -622,7 +1208,7 @@ export default function App() {
             id="btn-sidebar-compare-docs"
           >
             <ArrowLeftRight className="w-4 h-4 text-indigo-400" />
-            Comparación Cruzada AI
+            {t("btn.compare_docs")}
           </button>
         </div>
       </aside>
@@ -650,37 +1236,93 @@ export default function App() {
 
             <div className="flex items-center gap-2 text-slate-400 text-xs font-mono font-medium">
               <Database className="w-4 h-4 text-indigo-400" />
-              <span>Vault: /secure_env</span>
+              <span>{t("app.vault_path")}</span>
               <span>/</span>
               <span className="text-slate-100 font-bold">
-                {activeView === "viewer" ? "Visualizador e Insights" : activeView === "upload" ? "Ingesta de Documentos" : "Comparador de Bóveda"}
+                {activeView === "viewer" ? t("view.viewer") : activeView === "upload" ? t("view.upload") : t("view.compare")}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-4 text-xs font-semibold">
+          <div className="flex items-center gap-3 text-xs font-semibold">
             {/* Warning when active engine key is missing */}
             {aiProvider === "cohere" && !apiKeysStatus.hasCohere && (
               <div className="hidden lg:flex items-center gap-1 px-3 py-1.5 bg-amber-950/40 border border-amber-900/45 text-[10px] text-amber-400 rounded-full font-mono font-semibold animate-pulse" id="warning-missing-cohere-key">
-                ⚠️ Agrega COHERE_API_KEY en .env
+                ⚠️ {t("warning.cohere")}
               </div>
             )}
             {aiProvider === "gemini" && !apiKeysStatus.hasGemini && (
               <div className="hidden lg:flex items-center gap-1 px-3 py-1.5 bg-amber-950/40 border border-amber-900/45 text-[10px] text-amber-400 rounded-full font-mono font-semibold animate-pulse" id="warning-missing-gemini-key">
-                ⚠️ Configura la clave GEMINI_API_KEY
+                ⚠️ {t("warning.gemini")}
               </div>
             )}
+
+            {/* Language Selector */}
+            <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-800 rounded-2xl p-0.5 shrink-0" id="language-selector" title={language === "es" ? "Cambiar idioma" : "Change language"}>
+              <button
+                onClick={() => setLanguage("es")}
+                className={`px-2 py-1 rounded-xl font-sans text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  language === "es"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                id="btn-lang-es"
+              >
+                <span>ES</span>
+              </button>
+              <button
+                onClick={() => setLanguage("en")}
+                className={`px-2 py-1 rounded-xl font-sans text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  language === "en"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                id="btn-lang-en"
+              >
+                <span>EN</span>
+              </button>
+            </div>
+
+            {/* Accessibility Theme Selector (Dark vs High-Contrast Light) */}
+            <div className="flex items-center gap-0.5 bg-slate-950 border border-slate-800 rounded-2xl p-0.5 shrink-0" id="theme-selector" title={language === "es" ? "Cambiar contraste" : "Change contrast"}>
+              <button
+                onClick={() => setTheme("dark")}
+                className={`px-2 py-1 rounded-xl font-sans text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  theme === "dark"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                id="btn-theme-dark"
+                title={language === "es" ? "Tema oscuro actual" : "Current dark theme"}
+              >
+                <Moon className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">{language === "es" ? "OSCURO" : "DARK"}</span>
+              </button>
+              <button
+                onClick={() => setTheme("light")}
+                className={`px-2 py-1 rounded-xl font-sans text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  theme === "light"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                id="btn-theme-light"
+                title={language === "es" ? "Contraste claro alto para accesibilidad" : "High contrast light theme for accessibility"}
+              >
+                <Sun className="w-3.5 h-3.5 animate-pulse" />
+                <span className="hidden xl:inline">{language === "es" ? "ACCESIBLE" : "ACCESSIBLE"}</span>
+              </button>
+            </div>
 
             {/* AI Engine Global Selector */}
             <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-2xl p-0.5 shrink-0" id="global-ai-selector">
               <button
                 onClick={() => setAiProvider("gemini")}
-                className={`px-3 py-1.5 rounded-xl font-sans text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                className={`px-2.5 py-1 rounded-xl font-sans text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
                   aiProvider === "gemini"
                     ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
-                title={apiKeysStatus.hasGemini ? "Google Gemini" : "Falta GEMINI_API_KEY"}
+                title={apiKeysStatus.hasGemini ? "Google Gemini" : language === "es" ? "Falta la clave GEMINI_API_KEY" : "Missing GEMINI_API_KEY"}
                 id="btn-select-gemini"
               >
                 <Sparkles className="w-3.5 h-3.5 shrink-0" />
@@ -692,12 +1334,12 @@ export default function App() {
               
               <button
                 onClick={() => setAiProvider("cohere")}
-                className={`px-3 py-1.5 rounded-xl font-sans text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                className={`px-2.5 py-1 rounded-xl font-sans text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
                   aiProvider === "cohere"
                     ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
-                title={apiKeysStatus.hasCohere ? "Cohere Command" : "Falta COHERE_API_KEY"}
+                title={apiKeysStatus.hasCohere ? "Cohere Command" : language === "es" ? "Falta la clave COHERE_API_KEY" : "Missing COHERE_API_KEY"}
                 id="btn-select-cohere"
               >
                 <Cpu className="w-3.5 h-3.5 shrink-0" />
@@ -708,12 +1350,34 @@ export default function App() {
               </button>
             </div>
             
-            {/* User credentials identifier */}
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-slate-850 border border-slate-800 rounded-full flex items-center justify-center text-[10px] font-bold text-indigo-400 uppercase">
-                AD
-              </div>
-              <span className="hidden md:inline text-xs text-slate-300">Enterprise Admin</span>
+            {/* Interactive User Role Selector */}
+            <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-2xl p-0.5 shrink-0" id="user-role-selector">
+              <button
+                onClick={() => setUserRole("admin")}
+                className={`px-2.5 py-1 rounded-xl font-sans text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  userRole === "admin"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                id="btn-select-role-admin"
+                title={language === "es" ? "Acceso Administrativo Completo" : "Full Administrative Access"}
+              >
+                <Unlock className="w-3.5 h-3.5" />
+                <span>ADMIN</span>
+              </button>
+              <button
+                onClick={() => setUserRole("viewer")}
+                className={`px-2.5 py-1 rounded-xl font-sans text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  userRole === "viewer"
+                    ? "bg-rose-900 text-white shadow-md shadow-rose-900/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                id="btn-select-role-viewer"
+                title={language === "es" ? "Rol de Solo Lectura (Sin cambios)" : "Read-Only Role (No changes)"}
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>{language === "es" ? "VISOR" : "VIEWER"}</span>
+              </button>
             </div>
           </div>
         </header>
@@ -721,45 +1385,288 @@ export default function App() {
         {/* Scrollable View Area container */}
         <div className="flex-1 overflow-hidden relative">
           <AnimatePresence mode="wait">
-            {activeView === "viewer" && activeDoc ? (
-              <motion.div
-                key={`viewer-${activeDoc.id}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.25 }}
-                className="h-full flex flex-col lg:flex-row p-4 md:p-6 gap-6 overflow-hidden"
-              >
-                {/* Left panel: Original Document Viewer */}
-                <div className="flex-1 h-full min-h-[350px] lg:min-h-0">
-                  <DocumentViewer
-                    document={activeDoc}
-                    onUpdateContent={handleUpdateContent}
-                    onTriggerReanalyze={handleTriggerReanalyze}
-                    isAnalyzing={isAnalyzing}
-                    isFocusMode={isFocusMode}
-                    onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
-                    onDeleteDocument={handleDeleteDocument}
-                    onRevertToVersion={handleRevertToVersion}
-                  />
-                </div>
+            {activeView === "viewer" ? (
+              activeDoc ? (
+                <motion.div
+                  key={`viewer-${activeDoc.id}`}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.25 }}
+                  className="h-full flex flex-col p-4 md:p-6 gap-4 overflow-hidden"
+                >
+                  {/* Mobile/Tablet Tab Selector */}
+                  {!isFocusMode && (
+                    <div className="lg:hidden flex items-center bg-slate-900 border border-slate-800 rounded-2xl p-1 shrink-0 shadow-inner">
+                      <button
+                        onClick={() => setMobileTab("document")}
+                        className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                          mobileTab === "document"
+                            ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/10"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        <FileText className="w-4 h-4" />
+                        <span>{language === "es" ? "Documento" : "Document"}</span>
+                      </button>
+                      <button
+                        onClick={() => setMobileTab("ai")}
+                        className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                          mobileTab === "ai"
+                            ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/10"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        <Brain className="w-4 h-4" />
+                        <span>{language === "es" ? "Asistente AI" : "AI Assistant"}</span>
+                      </button>
+                    </div>
+                  )}
 
-                {/* Right panel: AI Cognitive Insights & Chat */}
-                {!isFocusMode && (
-                  <div className="w-full lg:w-[420px] xl:w-[460px] h-full shrink-0 flex flex-col min-h-[400px] lg:min-h-0 animate-in fade-in slide-in-from-right-4 duration-300">
-                    <AiInsightsPanel
-                      document={activeDoc}
-                      chats={activeDocChats}
-                      onSendMessage={handleSendMessage}
-                      isChatLoading={isChatLoading}
-                      isAnalyzing={isAnalyzing}
-                      onGenerateExecutiveSummary={handleGenerateExecutiveSummary}
-                      isGeneratingSummary={isGeneratingSummary}
-                      provider={aiProvider}
-                    />
+                  {/* Columns Container */}
+                  <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 overflow-hidden min-h-0">
+                    {/* Left panel: Original Document Viewer */}
+                    <div className={`flex-grow h-full min-h-0 ${isFocusMode || mobileTab === "document" ? "block" : "hidden lg:block"}`}>
+                      <DocumentViewer
+                        document={activeDoc}
+                        onUpdateContent={handleUpdateContent}
+                        onTriggerReanalyze={handleTriggerReanalyze}
+                        isAnalyzing={isAnalyzing}
+                        isFocusMode={isFocusMode}
+                        onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+                        onDeleteDocument={handleDeleteDocument}
+                        onRevertToVersion={handleRevertToVersion}
+                        userRole={userRole}
+                        provider={aiProvider}
+                      />
+                    </div>
+
+                    {/* Right panel: AI Cognitive Insights & Chat */}
+                    {!isFocusMode && (
+                      <div className={`w-full lg:w-[420px] xl:w-[460px] h-full shrink-0 flex flex-col min-h-0 animate-in fade-in duration-300 ${mobileTab === "ai" ? "flex" : "hidden lg:flex"}`}>
+                        <AiInsightsPanel
+                          document={activeDoc}
+                          chats={activeDocChats}
+                          onSendMessage={handleSendMessage}
+                          isChatLoading={isChatLoading}
+                          isAnalyzing={isAnalyzing}
+                          onGenerateExecutiveSummary={handleGenerateExecutiveSummary}
+                          isGeneratingSummary={isGeneratingSummary}
+                          provider={aiProvider}
+                          userRole={userRole}
+                          onSaveFeedback={handleSaveFeedback}
+                          chunkSize={chunkSize}
+                          setChunkSize={setChunkSize}
+                          retrievalK={retrievalK}
+                          setRetrievalK={setRetrievalK}
+                          temperature={temperature}
+                          setTemperature={setTemperature}
+                          useCache={useCache}
+                          setUseCache={setUseCache}
+                        />
+                      </div>
+                    )}
                   </div>
-                )}
-              </motion.div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="viewer-empty-state"
+                  initial={{ opacity: 0, scale: 0.98, y: 12 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.98, y: -12 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  className="h-full w-full p-6 overflow-y-auto flex flex-col justify-between"
+                  id="vault-dashboard-empty-state"
+                >
+                  <div className="max-w-4xl mx-auto w-full my-auto py-8">
+                    {/* Header Welcomer */}
+                    <div className="text-center mb-10">
+                      <div className="inline-flex p-3.5 bg-indigo-600/10 border border-indigo-500/25 text-indigo-400 rounded-3xl mb-4 shadow-lg shadow-indigo-500/5 animate-pulse">
+                        <Brain className="w-8 h-8" />
+                      </div>
+                      <h2 className="text-2xl font-black text-slate-100 tracking-tight sm:text-3xl font-sans">
+                        {language === "es" ? "Bóveda Inteligente DocuMind" : "DocuMind Intelligent Vault"}
+                      </h2>
+                      <p className="mt-2.5 text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
+                        {language === "es" 
+                          ? "No hay ningún documento activo seleccionado. Selecciona un archivo del repositorio lateral o sigue la guía interactiva a continuación."
+                          : "No active document is selected. Choose a file from the repository sidebar or follow the interactive guide below."}
+                      </p>
+                    </div>
+
+                    {/* Bento Quick Start Guide */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                      {/* Step 1: Upload Document */}
+                      <div 
+                        onClick={() => setActiveView("upload")}
+                        className="bg-slate-900 border border-slate-800/80 hover:border-indigo-500/30 rounded-2xl p-5 transition-all duration-300 group cursor-pointer shadow-xl relative overflow-hidden flex flex-col justify-between"
+                      >
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-indigo-500/5 to-transparent pointer-events-none" />
+                        <div>
+                          <div className="flex items-center justify-between mb-3.5">
+                            <div className="p-2 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl">
+                              <Upload className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] font-bold font-mono text-indigo-400 uppercase tracking-widest px-2 py-0.5 bg-indigo-950/40 border border-indigo-900/30 rounded-md">
+                              {language === "es" ? "Paso 1" : "Step 1"}
+                            </span>
+                          </div>
+                          <h3 className="text-sm font-bold text-slate-200 group-hover:text-indigo-400 transition-colors font-sans flex items-center gap-1.5">
+                            {language === "es" ? "Cargar Nuevo Documento" : "Upload New Document"}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                            {language === "es"
+                              ? "Importa archivos de texto o código en el repositorio seguro para inicializar el análisis y la indexación semántica RAG."
+                              : "Import text or code files into the secure repository to initialize analysis and semantic RAG indexing."}
+                          </p>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs font-bold text-indigo-400 group-hover:translate-x-1 transition-transform">
+                          <span>{language === "es" ? "Ir al cargador" : "Go to uploader"}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+
+                      {/* Step 2: Select Document */}
+                      <div 
+                        onClick={() => {
+                          if (documents.length > 0) {
+                            setActiveDocId(documents[0].id);
+                            showToast(
+                              language === "es"
+                                ? `Cargando el documento: ${documents[0].title}`
+                                : `Loading document: ${documents[0].title}`,
+                              "info"
+                            );
+                          } else {
+                            showToast(
+                              language === "es"
+                                ? "Carga un documento primero"
+                                : "Please upload a document first",
+                              "warning"
+                            );
+                          }
+                        }}
+                        className="bg-slate-900 border border-slate-800/80 hover:border-emerald-500/30 rounded-2xl p-5 transition-all duration-300 group cursor-pointer shadow-xl relative overflow-hidden flex flex-col justify-between"
+                      >
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-emerald-500/5 to-transparent pointer-events-none" />
+                        <div>
+                          <div className="flex items-center justify-between mb-3.5">
+                            <div className="p-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] font-bold font-mono text-emerald-400 uppercase tracking-widest px-2 py-0.5 bg-emerald-950/40 border border-emerald-900/30 rounded-md">
+                              {language === "es" ? "Paso 2" : "Step 2"}
+                            </span>
+                          </div>
+                          <h3 className="text-sm font-bold text-slate-200 group-hover:text-emerald-400 transition-colors font-sans">
+                            {language === "es" ? "Explorar Repositorio" : "Explore Repository"}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                            {language === "es"
+                              ? "Selecciona un documento de la lista lateral para iniciar el chat con IA contextual, inspeccionar versiones o regenerar resúmenes."
+                              : "Select a document from the sidebar list to start contextual AI chat, inspect history versions, or regenerate summaries."}
+                          </p>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs font-bold text-emerald-400 group-hover:translate-x-1 transition-transform">
+                          <span>
+                            {documents.length > 0 
+                              ? (language === "es" ? `Cargar: ${documents[0].title}` : `Load: ${documents[0].title}`)
+                              : (language === "es" ? "Selecciona de la lista" : "Select from list")}
+                          </span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+
+                      {/* Step 3: Compare Side-by-Side */}
+                      <div 
+                        onClick={() => setActiveView("compare")}
+                        className="bg-slate-900 border border-slate-800/80 hover:border-amber-500/30 rounded-2xl p-5 transition-all duration-300 group cursor-pointer shadow-xl relative overflow-hidden flex flex-col justify-between"
+                      >
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-amber-500/5 to-transparent pointer-events-none" />
+                        <div>
+                          <div className="flex items-center justify-between mb-3.5">
+                            <div className="p-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl">
+                              <ArrowLeftRight className="w-4 h-4" />
+                            </div>
+                            <span className="text-[10px] font-bold font-mono text-amber-400 uppercase tracking-widest px-2 py-0.5 bg-amber-950/40 border border-amber-900/30 rounded-md">
+                              {language === "es" ? "Paso 3" : "Step 3"}
+                            </span>
+                          </div>
+                          <h3 className="text-sm font-bold text-slate-200 group-hover:text-amber-400 transition-colors font-sans">
+                            {language === "es" ? "Comparación Diferencial" : "Differential Comparison"}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                            {language === "es"
+                              ? "Utiliza la herramienta de comparación avanzada para analizar versiones de documentos y cambios de texto línea por línea."
+                              : "Use the advanced comparison tool to analyze document variations and trace differences line-by-line."}
+                          </p>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs font-bold text-amber-400 group-hover:translate-x-1 transition-transform">
+                          <span>{language === "es" ? "Ir al comparador" : "Go to comparison"}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+
+                      {/* Step 4: Toggle Audit Roles */}
+                      <div 
+                        onClick={() => {
+                          const nextRole = userRole === "admin" ? "viewer" : "admin";
+                          setUserRole(nextRole);
+                        }}
+                        className="bg-slate-900 border border-slate-800/80 hover:border-rose-500/30 rounded-2xl p-5 transition-all duration-300 group cursor-pointer shadow-xl relative overflow-hidden flex flex-col justify-between"
+                      >
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-rose-500/5 to-transparent pointer-events-none" />
+                        <div>
+                          <div className="flex items-center justify-between mb-3.5">
+                            <div className="p-2 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-xl">
+                              {userRole === "admin" ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                            </div>
+                            <span className="text-[10px] font-bold font-mono text-rose-400 uppercase tracking-widest px-2 py-0.5 bg-rose-950/40 border border-rose-900/30 rounded-md">
+                              {language === "es" ? "Paso 4" : "Step 4"}
+                            </span>
+                          </div>
+                          <h3 className="text-sm font-bold text-slate-200 group-hover:text-rose-400 transition-colors font-sans">
+                            {language === "es" ? "Políticas de Cumplimiento" : "Compliance & Roles"}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
+                            {language === "es"
+                              ? `Cambia el rol a ${userRole === "admin" ? "VISOR" : "ADMIN"} en el selector superior para verificar el comportamiento de lectura y escritura.`
+                              : `Toggle role to ${userRole === "admin" ? "VIEWER" : "ADMIN"} in the header selector to verify read/write permission compliance.`}
+                          </p>
+                        </div>
+                        <div className="mt-4 pt-4 border-t border-slate-800/60 flex items-center justify-between text-xs font-bold text-rose-400 group-hover:translate-x-1 transition-transform">
+                          <span>
+                            {language === "es" 
+                              ? `Cambiar a ${userRole === "admin" ? "Visor" : "Administrador"}`
+                              : `Switch to ${userRole === "admin" ? "Viewer" : "Administrator"}`}
+                          </span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dashboard Statistics Footnote */}
+                    <div className="p-4 bg-slate-900/40 border border-slate-800/60 rounded-2xl flex flex-wrap gap-6 items-center justify-between text-xs font-sans text-slate-400">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>
+                          {language === "es" ? "Estado de la Bóveda" : "Vault Status"}: <strong>{language === "es" ? "Operativo" : "Operational"}</strong>
+                        </span>
+                      </div>
+                      
+                      <div className="flex gap-4">
+                        <span>
+                          {language === "es" ? "Motor IA" : "AI Engine"}: <strong className="text-indigo-400 font-mono">{aiProvider === "gemini" ? "Gemini 1.5 Flash" : "Cohere Command"}</strong>
+                        </span>
+                        <span className="text-slate-700">|</span>
+                        <span>
+                          {language === "es" ? "Cache LLM" : "LLM Cache"}: <strong className={useCache ? "text-emerald-400" : "text-amber-500"}>{useCache ? (language === "es" ? "Activa" : "Active") : (language === "es" ? "Inactiva" : "Inactive")}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )
             ) : activeView === "upload" ? (
               <motion.div
                 key="uploader-view"
@@ -770,10 +1677,18 @@ export default function App() {
               >
                 <div className="max-w-4xl mx-auto">
                   <DocumentUploader
+                    userRole={userRole}
+                    aiProvider={aiProvider}
                     onAddDocument={(newDoc) => {
                       setDocuments([newDoc, ...documents]);
                       setActiveDocId(newDoc.id);
                       setActiveView("viewer");
+                      showToast(
+                        language === "es"
+                          ? "¡Documento cargado y analizado correctamente!"
+                          : "Document successfully uploaded and analyzed!",
+                        "success"
+                      );
                     }}
                     onCancel={() => setActiveView("viewer")}
                   />
@@ -800,6 +1715,70 @@ export default function App() {
         </div>
       </main>
 
+      {/* Elegant Custom Batch Deletion Confirmation Modal */}
+      <AnimatePresence>
+        {isBatchDeleteConfirmOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden"
+              id="confirm-batch-delete-modal"
+            >
+              <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-rose-500/5 to-transparent pointer-events-none" />
+              
+              <div className="flex items-center gap-3.5 mb-4">
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100 font-sans">
+                    {language === "es" ? "Eliminar lote de documentos" : "Delete Batch of Documents"}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    {language === "es" ? "Operación por Lote" : "Batch Operation"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-sm text-slate-300 leading-relaxed font-sans mb-6">
+                {language === "es" ? (
+                  <>¿Estás seguro de que deseas eliminar los <strong className="text-rose-400 font-mono font-bold">{selectedDocIds.length}</strong> documentos seleccionados? Esta acción los borrará permanentemente junto con su historial de chat asociado de tu almacenamiento local.</>
+                ) : (
+                  <>Are you sure you want to delete the <strong className="text-rose-400 font-mono font-bold">{selectedDocIds.length}</strong> selected documents? This action will permanently erase them along with all associated chat histories from your local storage.</>
+                )}
+                
+                {/* List names of selected docs */}
+                <div className="mt-3 max-h-24 overflow-y-auto border border-slate-800/80 rounded-xl p-2 bg-slate-950/40 text-xs text-slate-400 space-y-1">
+                  {documents.filter(d => selectedDocIds.includes(d.id)).map(d => (
+                    <div key={d.id} className="truncate">• {d.title}</div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 justify-end">
+                <button
+                  onClick={() => setIsBatchDeleteConfirmOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-xl transition-all cursor-pointer"
+                  id="btn-cancel-batch-delete"
+                >
+                  {t("delete.cancel")}
+                </button>
+                <button
+                  onClick={handleConfirmBatchDelete}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl transition-all shadow-lg shadow-rose-600/10 cursor-pointer"
+                  id="btn-confirm-batch-delete"
+                >
+                  {language === "es" ? `Eliminar ${selectedDocIds.length}` : `Delete ${selectedDocIds.length}`}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Elegant Custom Deletion Confirmation Modal */}
       <AnimatePresence>
         {docIdToDelete && (
@@ -820,16 +1799,20 @@ export default function App() {
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-100 font-sans">
-                    ¿Eliminar documento?
+                    {t("delete.title")}
                   </h3>
                   <p className="text-xs text-slate-400 font-mono">
-                    Bóveda Local
+                    {language === "es" ? "Bóveda Local" : "Local Vault"}
                   </p>
                 </div>
               </div>
 
               <div className="text-sm text-slate-300 leading-relaxed font-sans mb-6">
-                ¿Estás seguro de que deseas eliminar <strong className="text-slate-100">"{documents.find(d => d.id === docIdToDelete)?.title}"</strong>? Esta acción borrará el documento y todo su historial de chat asociado de forma permanente de tu almacenamiento local.
+                {language === "es" ? (
+                  <>¿Estás seguro de que deseas eliminar <strong className="text-slate-100">"{documents.find(d => d.id === docIdToDelete)?.title}"</strong>? Esta acción borrará el documento y todo su historial de chat asociado de forma permanente de tu almacenamiento local.</>
+                ) : (
+                  <>Are you sure you want to delete <strong className="text-slate-100">"{documents.find(d => d.id === docIdToDelete)?.title}"</strong>? This action will permanently erase the document and all associated chat history from your local storage.</>
+                )}
               </div>
 
               <div className="flex items-center gap-3 justify-end">
@@ -838,14 +1821,14 @@ export default function App() {
                   className="px-4 py-2 text-xs font-semibold text-slate-300 bg-slate-950 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 rounded-xl transition-all cursor-pointer"
                   id="btn-cancel-modal-delete"
                 >
-                  Cancelar
+                  {t("delete.cancel")}
                 </button>
                 <button
                   onClick={confirmDeleteDocument}
                   className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-xl transition-all shadow-lg shadow-rose-600/10 cursor-pointer"
                   id="btn-confirm-modal-delete"
                 >
-                  Eliminar permanentemente
+                  {language === "es" ? "Eliminar permanentemente" : "Delete permanently"}
                 </button>
               </div>
             </motion.div>
