@@ -1438,6 +1438,7 @@ export default function App() {
                         onRevertToVersion={handleRevertToVersion}
                         userRole={userRole}
                         provider={aiProvider}
+                        searchQuery={searchQuery}
                       />
                     </div>
 

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { DocumentItem } from "../types";
-import { FileText, Edit2, Check, X, RefreshCw, Calendar, Tag, Maximize2, Minimize2, BookOpen, Trash2, Clock, History, RotateCcw, GitCommit, ArrowLeft, Download, GitCompare, Split, ChevronDown, ChevronRight } from "lucide-react";
+import { FileText, Edit2, Check, X, RefreshCw, Calendar, Tag, Maximize2, Minimize2, BookOpen, Trash2, Clock, History, RotateCcw, GitCommit, ArrowLeft, Download, GitCompare, Split, ChevronDown, ChevronRight, Type, Search } from "lucide-react";
 import { useLanguage } from "../LanguageContext";
 import { computeLineDiff, computeWordDiff, DiffLine, WordToken } from "../utils/diff";
 
@@ -91,6 +91,31 @@ function calculateFleschKincaid(text: string, language: "es" | "en" = "es") {
   };
 }
 
+function highlightSearchText(text: string, query: string) {
+  if (!query || !query.trim()) return text;
+
+  const trimmedQuery = query.trim();
+  const escapedQuery = trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escapedQuery})`, "gi");
+  const parts = text.split(regex);
+
+  if (parts.length <= 1) return text;
+
+  return parts.map((part, idx) => {
+    if (part.toLowerCase() === trimmedQuery.toLowerCase()) {
+      return (
+        <mark
+          key={idx}
+          className="bg-amber-400/35 text-amber-100 ring-1 ring-amber-400/60 border-b-2 border-amber-400 px-1 py-0.5 rounded font-semibold transition-all shadow-[0_0_12px_rgba(245,158,11,0.3)] mx-0.5"
+        >
+          {part}
+        </mark>
+      );
+    }
+    return part;
+  });
+}
+
 interface DocumentViewerProps {
   document: DocumentItem;
   onUpdateContent: (id: string, newContent: string, changeSummary?: string, updatedTags?: string[]) => void;
@@ -102,6 +127,7 @@ interface DocumentViewerProps {
   onRevertToVersion: (docId: string, versionId: string) => void;
   userRole?: 'admin' | 'viewer';
   provider?: 'gemini' | 'cohere';
+  searchQuery?: string;
 }
 
 export default function DocumentViewer({
@@ -115,6 +141,7 @@ export default function DocumentViewer({
   onRevertToVersion,
   userRole = "admin",
   provider = "gemini",
+  searchQuery = "",
 }: DocumentViewerProps) {
   const { language, t } = useLanguage();
   const [isEditing, setIsEditing] = useState(false);
@@ -142,6 +169,16 @@ export default function DocumentViewer({
     setScrollPercent(0);
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          const { scrollHeight, clientHeight } = scrollContainerRef.current;
+          if (scrollHeight - clientHeight <= 0) {
+            setScrollPercent(100);
+          } else {
+            setScrollPercent(0);
+          }
+        }
+      }, 50);
     }
   }, [document]);
 
@@ -153,7 +190,7 @@ export default function DocumentViewer({
     const totalScrollable = scrollHeight - clientHeight;
     
     if (totalScrollable <= 0) {
-      setScrollPercent(0);
+      setScrollPercent(100);
     } else {
       const percentage = Math.min(100, Math.round((scrollTop / totalScrollable) * 100));
       setScrollPercent(percentage);
@@ -259,8 +296,19 @@ export default function DocumentViewer({
   }, [isPreviewing, previewVersion, previousVersion, compareTarget, document.content]);
 
   const contentToDisplay = isPreviewing && previewVersion ? previewVersion.content : (isEditing ? editedContent : document.content);
+  const activeText = isEditing ? editedContent : contentToDisplay;
 
-  const readability = calculateFleschKincaid(isEditing ? editedContent : contentToDisplay, language);
+  const wordCount = activeText.trim() ? activeText.trim().split(/\s+/).filter(Boolean).length : 0;
+  const characterCount = activeText.length;
+
+  const searchMatchCount = useMemo(() => {
+    if (!searchQuery || !searchQuery.trim() || !activeText) return 0;
+    const escapedQuery = searchQuery.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const matches = activeText.match(new RegExp(escapedQuery, "gi"));
+    return matches ? matches.length : 0;
+  }, [activeText, searchQuery]);
+
+  const readability = calculateFleschKincaid(activeText, language);
   const readingTimeMinutes = Math.max(1, Math.ceil(readability.totalWords / 200));
 
   const handleAddEditTag = () => {
@@ -447,6 +495,76 @@ ${document.content || ""}
               <span className="flex items-center gap-1.5 px-2 py-0.5 border border-slate-850 bg-slate-950/60 text-slate-300 rounded-full text-[10px] font-semibold shrink-0" id="reading-time-chip">
                 <Clock className="w-3 h-3 text-indigo-400" />
                 <span>{readingTimeMinutes} {readingTimeMinutes === 1 ? (language === "es" ? "min de lectura" : "min read") : (language === "es" ? "minutos de lectura" : "mins read")}</span>
+              </span>
+
+              {/* Dynamic Live Word & Character Count Indicator Chip */}
+              <span 
+                className={`flex items-center gap-1.5 px-2.5 py-0.5 border rounded-full text-[10px] font-semibold font-mono shrink-0 transition-all duration-300 ${
+                  isEditing
+                    ? "bg-amber-950/60 border-amber-700/60 text-amber-300 shadow-sm shadow-amber-950/40"
+                    : "bg-slate-950/60 border-slate-850 text-slate-300"
+                }`}
+                id="word-character-count-chip"
+                title={
+                  language === "es"
+                    ? `Conteo dinámico: ${wordCount} palabras, ${characterCount} caracteres`
+                    : `Dynamic count: ${wordCount} words, ${characterCount} characters`
+                }
+              >
+                <Type className={`w-3 h-3 shrink-0 ${isEditing ? "text-amber-400 animate-pulse" : provider === "cohere" ? "text-teal-400" : "text-indigo-400"}`} />
+                <span>
+                  <strong className="font-bold text-slate-100">{wordCount.toLocaleString()}</strong> {language === "es" ? "palabras" : "words"}
+                </span>
+                <span className="text-slate-600 font-normal">|</span>
+                <span>
+                  <strong className="font-bold text-slate-100">{characterCount.toLocaleString()}</strong> {language === "es" ? "caracteres" : "chars"}
+                </span>
+                {isEditing && (
+                  <span className="text-[9px] font-sans font-bold bg-amber-500/20 text-amber-300 px-1 py-0.2 rounded-md uppercase tracking-wider ml-0.5 animate-pulse">
+                    {language === "es" ? "En vivo" : "Live"}
+                  </span>
+                )}
+              </span>
+
+              {/* Active Search Query Highlight Counter Chip */}
+              {searchQuery && searchQuery.trim().length > 0 && (
+                <span 
+                  className={`flex items-center gap-1.5 px-2.5 py-0.5 border rounded-full text-[10px] font-semibold font-mono shrink-0 transition-all duration-300 ${
+                    searchMatchCount > 0
+                      ? "bg-amber-950/70 border-amber-700/70 text-amber-300 shadow-sm shadow-amber-950/30"
+                      : "bg-slate-950/60 border-slate-800 text-slate-500 opacity-70"
+                  }`}
+                  id="search-highlight-chip"
+                  title={
+                    language === "es"
+                      ? `Coincidencias resaltadas para "${searchQuery}": ${searchMatchCount}`
+                      : `Highlighted matches for "${searchQuery}": ${searchMatchCount}`
+                  }
+                >
+                  <Search className={`w-3 h-3 shrink-0 ${searchMatchCount > 0 ? "text-amber-400 animate-pulse" : "text-slate-500"}`} />
+                  <span>
+                    <strong className="font-bold text-slate-100">{searchMatchCount}</strong> {searchMatchCount === 1 ? (language === "es" ? "coincidencia" : "match") : (language === "es" ? "coincidencias" : "matches")}
+                  </span>
+                  <span className="text-amber-500/60 text-[9px] font-sans italic max-w-[80px] truncate">
+                    "{searchQuery}"
+                  </span>
+                </span>
+              )}
+
+              {/* Dynamic Reading Progress Badge Chip */}
+              <span 
+                className={`flex items-center gap-1.5 px-2 py-0.5 border rounded-full text-[10px] font-semibold font-mono shrink-0 transition-all duration-300 ${
+                  scrollPercent === 100 
+                    ? "bg-emerald-950/60 border-emerald-800/60 text-emerald-400" 
+                    : provider === "cohere"
+                      ? "bg-teal-950/60 border-teal-800/60 text-teal-300"
+                      : "bg-indigo-950/60 border-indigo-800/60 text-indigo-300"
+                }`}
+                id="reading-progress-chip"
+                title={language === "es" ? "Progreso de lectura" : "Reading progress"}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${scrollPercent === 100 ? "bg-emerald-400" : provider === "cohere" ? "bg-teal-400" : "bg-indigo-400"}`} />
+                <span>{scrollPercent}% {language === "es" ? "leído" : "read"}</span>
               </span>
               
               {/* Readability Score Metric Chip with Hover Tooltip */}
@@ -673,12 +791,21 @@ ${document.content || ""}
       </div>
 
       {/* Scroll Progress Bar */}
-      <div className="w-full bg-slate-950/80 h-[3px] shrink-0 relative border-b border-slate-900" id="scroll-progress-container">
+      <div className="w-full bg-slate-950/90 h-1.5 shrink-0 relative border-b border-slate-850/80 overflow-hidden" id="scroll-progress-container">
         <div 
-          className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 h-full transition-all duration-75 rounded-r-full"
+          className={`h-full transition-all duration-150 rounded-r-full relative ${
+            provider === "cohere"
+              ? "bg-gradient-to-r from-teal-500 via-emerald-400 to-cyan-400 shadow-[0_0_12px_rgba(20,184,166,0.6)]"
+              : "bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 shadow-[0_0_12px_rgba(99,102,241,0.6)]"
+          }`}
           style={{ width: `${scrollPercent}%` }}
           id="scroll-progress-bar"
-        />
+        >
+          {/* Glowing pulse tip on trailing edge */}
+          {scrollPercent > 0 && scrollPercent < 100 && (
+            <div className="absolute right-0 top-0 bottom-0 w-2 bg-white/80 rounded-full blur-[1px] shadow-[0_0_8px_#fff]" />
+          )}
+        </div>
       </div>
 
       {/* Main split container */}
@@ -984,9 +1111,9 @@ ${document.content || ""}
                 </div>
               </div>
             ) : (
-              <div className="prose prose-invert max-w-none text-slate-300 font-sans leading-relaxed whitespace-pre-wrap text-sm">
+              <div className="prose prose-invert max-w-none text-slate-300 font-sans leading-relaxed whitespace-pre-wrap text-sm" id="document-content-text">
                 {contentToDisplay ? (
-                  contentToDisplay
+                  highlightSearchText(contentToDisplay, searchQuery)
                 ) : (
                   <div className="text-center py-20 text-slate-500 font-mono">
                     {language === "es" ? "[Este documento está vacío. Añade contenido en modo Edición]" : "[This document is empty. Add content in Edit mode]"}
